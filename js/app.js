@@ -90,6 +90,7 @@ function route() {
     // 画面を出すのは openShow の中。中身が揃うまでは前の画面のままにする
     openShow(params.get('feed') || '');
   } else if (path === '/search') {
+    syncSearchClear();
     showScreen('search');
     $('search-input').focus({ preventScroll: true });
   } else {
@@ -530,6 +531,19 @@ $('episode-list').addEventListener('click', (event) => {
 // ---- 番組検索 ---------------------------------------------------------------
 
 let searchResults = [];
+
+/** 入力があるときだけ消去ボタンを出す */
+function syncSearchClear() {
+  $('search-clear').hidden = $('search-input').value.length === 0;
+}
+
+$('search-input').addEventListener('input', syncSearchClear);
+
+$('search-clear').addEventListener('click', () => {
+  $('search-input').value = '';
+  syncSearchClear();
+  $('search-input').focus();
+});
 
 $('search-form').addEventListener('submit', async (event) => {
   event.preventDefault();

@@ -131,6 +131,15 @@ check('ホーム画面から起動していれば案内を出さない',
 
 // --- 検索 → フォロー
 await page.click('a[href="/search"]');
+
+// 入力欄の消去ボタン
+check('入力が空なら消去ボタンは出ない', await page.isHidden('#search-clear'));
+await page.fill('#search-input', 'あ');
+check('入力すると消去ボタンが出る', await page.isVisible('#search-clear'));
+await page.click('#search-clear');
+check('消去ボタンで入力が消える', (await page.inputValue('#search-input')) === '');
+check('消したら消去ボタンも消える', await page.isHidden('#search-clear'));
+
 await page.fill('#search-input', 'テスト');
 await page.click('.searchbar__btn');
 await page.waitForSelector('[data-follow]');

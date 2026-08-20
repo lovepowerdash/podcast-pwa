@@ -295,14 +295,35 @@ body.is-playing .scroll { padding-bottom: calc(var(--mini-h) + var(--safe-bottom
 
 /* ---- 検索フォーム ---- */
 .searchbar { display: flex; gap: 8px; padding: 12px 16px; flex: none; }
+.searchbar__field { position: relative; flex: 1; min-width: 0; display: flex; }
 .searchbar__input {
   flex: 1; min-width: 0;
   height: 42px;
-  padding: 0 14px;
+  padding: 0 40px 0 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
 }
+/* 端末が出す消去ボタンと重ならないよう、こちらだけを使う */
+.searchbar__input::-webkit-search-cancel-button { display: none; }
+.searchbar__clear {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.searchbar__clear[hidden] { display: none; }
+.searchbar__clear:active { color: var(--text); background: var(--surface-2); }
+.searchbar__clear svg { width: 18px; height: 18px; }
 .searchbar__btn {
   height: 42px; padding: 0 16px;
   border: 0; border-radius: 12px;
