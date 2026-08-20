@@ -82,6 +82,14 @@ const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  
 
 await page.goto('http://localhost:8099/', { waitUntil: 'networkidle' });
 check('ホームの空状態', (await page.textContent('#home-list')).includes('フォロー中の番組はまだありません'));
+check('ブラウザで開いた空状態では追加の案内を出す',
+  (await page.textContent('#home-list')).includes('ホーム画面に追加すると便利です'));
+
+// ホーム画面から起動している場合は案内を出さない（iOSは navigator.standalone で判定する）
+await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
+await page.reload({ waitUntil: 'networkidle' });
+check('ホーム画面から起動していれば案内を出さない',
+  !(await page.textContent('#home-list')).includes('ホーム画面に追加すると便利です'));
 
 // --- 検索 → フォロー
 await page.click('a[href="#/search"]');
