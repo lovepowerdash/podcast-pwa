@@ -1,7 +1,7 @@
 {
   "name": "podflow",
   "short_name": "podflow",
-  "description": "聴きたい順に並べ替えて、続きから聴けるポッドキャストアプリ",
+  "description": "おすすめも最新回の押し出しも通知もしない、余計な機能がないポッドキャストアプリ",
   "lang": "ja",
   "start_url": "/",
   "scope": "/",

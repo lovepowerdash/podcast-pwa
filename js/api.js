@@ -187,14 +187,21 @@ export async function revalidateFeed(feedUrl) {
     const added = episodes.filter((ep) => !known.has(ep.episodeId));
     const merged = [...added, ...cache.rawEpisodes];
     await storeFeed(feedUrl, merged, validators);
-    return added.length > 0
-      ? { changed: true, episodes: merged, feedTitle, added: added.length }
-      : { changed: false };
+    return added.length > 0 ? { changed: true, episodes: merged, feedTitle } : { changed: false };
   }
 
   await storeFeed(feedUrl, episodes, validators);
   if (cache && sameEpisodes(cache.rawEpisodes, episodes)) return { changed: false };
   return { changed: true, episodes, feedTitle };
+}
+
+/**
+ * 手持ちの中で一番新しい回の公開日。フィードがどこまで更新されているかの目安として使う。
+ * channel の lastBuildDate は取得のたびに現在時刻を返す配信元があり目安にならないため、
+ * 回そのものの公開日を見る。
+ */
+export function newestPubDate(episodes) {
+  return newestEpisode(episodes || [])?.pubDate || 0;
 }
 
 function newestEpisode(episodes) {

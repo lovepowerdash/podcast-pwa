@@ -1,11 +1,12 @@
 // ---------------------------------------------------------------------------
 // 画面遷移とレンダリング。4画面（ホーム / エピソード一覧 / 番組検索 / プレイヤー）
 // ---------------------------------------------------------------------------
-import { searchPodcasts, fetchFeed, revalidateFeed } from './api.js';
+import { searchPodcasts, fetchFeed, revalidateFeed, newestPubDate } from './api.js';
 import {
   listFollows, getFollow, addFollow, removeFollow,
   setSortOrder, setHideRead, setArtwork, episodeStateMap, setEpisodesRead,
-  putEpisodeStates, newEpisodeState, getFeedCache, setFollowTitle,
+  putEpisodeStates, newEpisodeState, getFeedCache, setFollowTitle, setFeedSummary,
+  countReadEpisodes,
 } from './db.js';
 import * as player from './player.js';
 import { APP_VERSION } from './config.js';
@@ -147,6 +148,53 @@ function installTip() {
       </div>`;
 }
 
+/**
+ * 番組行の1行目。並び順と、フィードの更新日（一番新しい回の公開日）を並べる。
+ * 更新が新しいことを強調はしない。どの番組も同じ見た目で日付だけを置き、
+ * 目立たせるかどうかの判断は見る側に任せる。
+ */
+function followMeta(follow) {
+  // 「で表示」まで書くと幅320pxの端末で日付が2行目に落ちるため、順番の名前だけにする
+  const order = follow.sortOrder === 'asc' ? '古い順' : '新しい順';
+  const updated = follow.latestPubDate ? `更新 ${formatDate(follow.latestPubDate)}` : '';
+  return [order, updated].filter(Boolean).join(' ・ ');
+}
+
+/**
+ * 番組行の2行目。どこまで聴いたか（再生済み / 全件）。
+ * 1行目に足すと幅320pxの端末で折り返すので行を分けている。
+ * 全件がまだ分からない番組（一度も開いていない）では出さない。
+ */
+function followProgress(follow, readCount) {
+  const total = follow.episodeCount || 0;
+  if (total === 0) return '';
+  // 配信が取り下げた回の記録が残っていることがあるので、全件を超えないようにする
+  return `${Math.min(readCount, total)}/${total} 再生済み`;
+}
+
+// 更新日と全件数を持っていないフォロー（この機能より前に追加したもの）を後から補う。
+// 番組を開けばそのとき入るが、それまでの間も一覧に出せるよう手持ちのキャッシュから拾う。
+const summaryTried = new Set();
+
+async function backfillFeedSummary(follows) {
+  const missing = follows.filter((f) => !f.latestPubDate && !summaryTried.has(f.feedUrl));
+  if (missing.length === 0) return;
+
+  let found = false;
+  for (const follow of missing) {
+    summaryTried.add(follow.feedUrl);
+    const cache = await getFeedCache(follow.feedUrl);
+    const episodes = cache?.rawEpisodes || [];
+    if (episodes.length === 0) continue; // まだ一度も開いていない番組。開いたときに入る
+    await setFeedSummary(follow.feedUrl, {
+      latestPubDate: newestPubDate(episodes),
+      episodeCount: episodes.length,
+    });
+    found = true;
+  }
+  if (found && !$('screen-home').hidden) renderHome();
+}
+
 // 同じ内容で描き直すと画像の要素が作り直され、読み込みし直しでちらつく。
 // 前回描いた内容と同じなら何もしない。
 let homeSignature = null;
@@ -154,9 +202,13 @@ let homeSignature = null;
 async function renderHome() {
   const list = $('home-list');
   const follows = await listFollows();
+  // 再生済み件数は再生や一括操作で変わるので、控えずに episodes の索引から数える
+  const readCounts = await Promise.all(follows.map((f) => countReadEpisodes(f.feedUrl)));
 
   const signature = JSON.stringify([
-    follows.map((f) => [f.feedUrl, f.title, f.artworkUrl, f.sortOrder]),
+    follows.map((f, i) => [
+      f.feedUrl, f.title, f.artworkUrl, f.sortOrder, f.latestPubDate, f.episodeCount, readCounts[i],
+    ]),
     isStandalone(),
     Boolean(installPrompt),
   ]);
@@ -180,19 +232,22 @@ async function renderHome() {
   }
   list.classList.remove('is-empty');
 
-  list.innerHTML = follows.map((f) => `
+  list.innerHTML = follows.map((f, i) => `
     <div class="row">
       <img class="row__art" src="${escapeHtml(f.artworkUrl || '')}" alt="" loading="lazy"
            onerror="this.removeAttribute('src')">
       <a class="row__main" href="/show?feed=${encodeURIComponent(f.feedUrl)}">
         <span class="row__title">${escapeHtml(f.title)}</span>
-        <span class="row__meta">${f.sortOrder === 'asc' ? '古い順' : '新しい順'}で表示</span>
+        <span class="row__meta">${escapeHtml(followMeta(f))}</span>
+        ${followProgress(f, readCounts[i])
+          ? `<span class="row__meta">${escapeHtml(followProgress(f, readCounts[i]))}</span>` : ''}
       </a>
       <button class="row__remove" type="button" data-unfollow="${escapeHtml(f.feedUrl)}" aria-label="フォローを解除">✕</button>
     </div>`).join('') + footer;
   showScreen('home');
 
   backfillArtwork(follows);
+  backfillFeedSummary(follows);
 }
 
 // アートワークURLを持っていないフォロー（この機能より前に追加したもの）を後から補う。
@@ -337,6 +392,7 @@ async function openShow(feedUrl, { force = false } = {}) {
       show.states = states;
       renderEpisodes();
       showScreen('show');
+      rememberFeedSummary(follow, cache.rawEpisodes);
       // 表示したあとで、裏で更新の有無だけ確かめる
       checkForNewEpisodes(feedUrl, follow);
       return;
@@ -355,6 +411,7 @@ async function openShow(feedUrl, { force = false } = {}) {
     show.episodes = episodes;
     show.states = states;
     await applyFeedTitle(follow, feedTitle);
+    await rememberFeedSummary(follow, episodes);
     renderEpisodes();
   } catch (err) {
     $('episode-list').innerHTML = `
@@ -379,7 +436,27 @@ async function applyFeedTitle(follow, feedTitle) {
   $('show-title').textContent = feedTitle;
 }
 
-/** 表示したあとに、フィードが新しくなっていれば一覧を差し替える */
+/**
+ * フィードの更新日と全エピソード数を控えておく。ホームはネットワークに触らないので、
+ * 番組を開いて分かった値を残しておかないと一覧に出せない。
+ */
+async function rememberFeedSummary(follow, episodes) {
+  const latestPubDate = newestPubDate(episodes);
+  const episodeCount = episodes.length;
+  if (!latestPubDate && episodeCount === 0) return;
+  if (latestPubDate === follow.latestPubDate && episodeCount === follow.episodeCount) return;
+  follow.latestPubDate = latestPubDate;
+  follow.episodeCount = episodeCount;
+  try {
+    await setFeedSummary(follow.feedUrl, { latestPubDate, episodeCount });
+  } catch { /* 書けなくても表示は続く。次に開いたときに書き直す */ }
+}
+
+/**
+ * 表示したあとに、フィードが新しくなっていれば一覧を差し替える。
+ * 見つかっても知らせは出さない。増えた回は一覧に並ぶだけで、
+ * 気づくかどうかは見る側に任せる（番組一覧の更新日も同じ考え）。
+ */
 async function checkForNewEpisodes(feedUrl, follow) {
   let result;
   try {
@@ -389,12 +466,11 @@ async function checkForNewEpisodes(feedUrl, follow) {
   }
   if (!result.changed || show.feedUrl !== feedUrl) return;
 
-  const added = result.added ?? (result.episodes.length - show.episodes.length);
   show.episodes = result.episodes;
   show.states = await episodeStateMap(feedUrl);
   await applyFeedTitle(follow, result.feedTitle);
+  await rememberFeedSummary(follow, result.episodes);
   renderEpisodes();
-  toast(added > 0 ? `新しいエピソードが ${added} 件あります` : 'エピソード一覧を更新しました');
 }
 
 // 1タップで並び順が反転する（メニューを開く操作を挟まない）

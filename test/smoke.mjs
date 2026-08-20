@@ -344,6 +344,17 @@ check('フォロー中一覧に番組画像が出る',
   (await page.getAttribute('.row__art', 'src')) === 'http://127.0.0.1:8099/art/200x200bb.jpg',
   await page.getAttribute('.row__art', 'src'));
 
+// フィードの更新日（一番新しい回の公開日）。端末のタイムゾーンで表示されるので同じ規則で組む
+const newest = new Date('Mon, 19 Feb 2024 09:00:00 +0900');
+const newestLabel = `更新 ${newest.getFullYear()}/${newest.getMonth() + 1}/${newest.getDate()}`;
+check('フォロー中一覧にフィードの更新日が出る',
+  (await page.textContent('.row__meta')).includes(newestLabel),
+  `${await page.textContent('.row__meta')} / ${newestLabel}`);
+
+// 行のテキストは組み立ての改行を含むので、まとめて1行に直してから見る
+const rowText = (await page.textContent('.row')).replace(/\s+/g, ' ').trim();
+check('フォロー中一覧に再生済みの件数が出る', /\d+\/3 再生済み/.test(rowText), rowText);
+
 // 同じ内容なら描き直さない（画像が読み込み直されてちらつくため）
 await page.evaluate(() => { document.querySelector('.row__art').dataset.kept = '1'; });
 await page.click('a[href="/search"]');
@@ -416,7 +427,8 @@ await openShowFromHome();
 await page.waitForFunction(() => document.querySelectorAll('[data-episode]').length === 4, null, { timeout: 8000 }).catch(() => {});
 check('新しい回があれば自動で取り込む', (await page.locator('[data-episode]').count()) === 4,
   `${await page.locator('[data-episode]').count()}件`);
-check('新着があったことを知らせる', (await page.textContent('#toast')).includes('新しいエピソードが 1 件'),
+check('新着があっても知らせは出さない',
+  !/新しいエピソード|一覧を更新/.test(await page.textContent('#toast')),
   await page.textContent('#toast'));
 // 中継が差分だけを返す場合（増えた回だけ受け取って手持ちに足す）
 const partialItem = `<?xml version="1.0" encoding="UTF-8"?>
@@ -446,7 +458,8 @@ await page.waitForFunction(() => document.querySelectorAll('[data-episode]').len
 check('手持ちの最新回を目印として送る', askedAfter === 'ep-4', String(askedAfter));
 check('差分だけ受け取って手持ちに足す', (await page.locator('[data-episode]').count()) === 5,
   `${await page.locator('[data-episode]').count()}件`);
-check('差分でも新着件数を知らせる', (await page.textContent('#toast')).includes('新しいエピソードが 1 件'),
+check('差分で増えたときも知らせは出さない',
+  !/新しいエピソード|一覧を更新/.test(await page.textContent('#toast')),
   await page.textContent('#toast'));
 
 // 差分が空（新着なし）なら何も起きない

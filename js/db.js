@@ -94,6 +94,14 @@ export async function setArtwork(feedUrl, artworkUrl) {
   await patchFollow(feedUrl, { artworkUrl });
 }
 
+/**
+ * 番組一覧に出す、フィードから分かること（更新日と全エピソード数）。
+ * ホームはネットワークに触らないので、番組を開いたときに控えておく。
+ */
+export async function setFeedSummary(feedUrl, { latestPubDate, episodeCount }) {
+  await patchFollow(feedUrl, { latestPubDate, episodeCount });
+}
+
 export async function setFollowTitle(feedUrl, title) {
   await patchFollow(feedUrl, { title });
 }
@@ -113,6 +121,12 @@ export function getEpisodeState(episodeId) {
 // feedUrl インデックス経由で番組単位に絞って取得する
 export async function listEpisodeStates(feedUrl) {
   return (await tx('episodes', 'readonly', (s) => s.index('feedUrl').getAll(feedUrl))) || [];
+}
+
+/** 番組ごとの再生済み件数。番組一覧に出すのは件数だけなので中身は返さない */
+export async function countReadEpisodes(feedUrl) {
+  const rows = await listEpisodeStates(feedUrl);
+  return rows.reduce((total, row) => total + (row.isRead ? 1 : 0), 0);
 }
 
 export async function episodeStateMap(feedUrl) {
