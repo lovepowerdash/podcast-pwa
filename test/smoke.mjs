@@ -462,6 +462,13 @@ check('viewport で拡大を禁止している',
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));
 const manifest = await (await page.request.get('http://localhost:8099/manifest.webmanifest')).json();
 check('manifest の display=standalone', manifest.display === 'standalone' && manifest.start_url === '/');
+check('説明文にアプリ名より前の呼び名が残っていない',
+  !(await page.getAttribute('meta[name=description]', 'content')).includes('PWA')
+  && !manifest.description.includes('PWA'),
+  await page.getAttribute('meta[name=description]', 'content'));
+check('共有時のプレビュー用の情報がある',
+  (await page.getAttribute('meta[property="og:title"]', 'content')) === 'podflow'
+  && (await page.getAttribute('meta[property="og:image"]', 'content')).endsWith('/icons/icon-512.png'));
 check('アプリ名が manifest と title で揃っている',
   manifest.name === 'podflow' && (await page.title()) === 'podflow', `${manifest.name} / ${await page.title()}`);
 
