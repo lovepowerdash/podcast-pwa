@@ -310,6 +310,43 @@ check('ホームに版が表示される', /\d{4}-\d{2}-\d{2}/.test(await page.t
 page.once('dialog', (d) => d.dismiss());
 await page.click('#version');
 
+// --- 開いたときに、フィードが新しくなっていたときだけ自動で更新する
+const openShowFromHome = async () => {
+  if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="#/"]');
+  await page.waitForSelector('.row__main');
+  await page.click('.row__main');
+  await page.waitForSelector('[data-episode]');
+};
+
+// 配信元が「変わっていない」と答えた場合（本文なしの204）
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => route.fulfill({ status: 204 }));
+await openShowFromHome();
+await page.waitForTimeout(900);
+check('更新が無ければ一覧はそのまま', (await page.locator('[data-episode]').count()) === 3,
+  `${await page.locator('[data-episode]').count()}件`);
+
+// 1本増えたフィードを返す場合
+const grownFeed = readFileSync(`${FX}/feed.xml`, 'utf8').replace('</channel>', `
+    <item>
+      <title>第4回 あたらしく増えた回</title>
+      <guid>ep-4</guid>
+      <pubDate>Mon, 26 Feb 2024 09:00:00 +0900</pubDate>
+      <itunes:duration>20:00</itunes:duration>
+      <enclosure url="http://localhost:8099/__audio/ep4.wav" type="audio/wav" length="1000"/>
+    </item>
+  </channel>`);
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: grownFeed }));
+await openShowFromHome();
+await page.waitForFunction(() => document.querySelectorAll('[data-episode]').length === 4, null, { timeout: 8000 }).catch(() => {});
+check('新しい回があれば自動で取り込む', (await page.locator('[data-episode]').count()) === 4,
+  `${await page.locator('[data-episode]').count()}件`);
+check('新着があったことを知らせる', (await page.textContent('#toast')).includes('新しいエピソードが 1 件'),
+  await page.textContent('#toast'));
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => route.abort('failed'));
+
 // --- ダブルタップ拡大の抑止
 check('touch-action で拡大を止めている（縦スクロールのみ許可）',
   await page.evaluate(() => getComputedStyle(document.body).touchAction === 'pan-y'),

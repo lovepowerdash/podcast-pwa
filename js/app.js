@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // 画面遷移とレンダリング。4画面（ホーム / エピソード一覧 / 番組検索 / プレイヤー）
 // ---------------------------------------------------------------------------
-import { searchPodcasts, fetchFeed } from './api.js';
+import { searchPodcasts, fetchFeed, revalidateFeed } from './api.js';
 import {
   listFollows, getFollow, addFollow, removeFollow, putFollow,
   setSortOrder, setHideRead, setArtwork, episodeStateMap, setEpisodesRead,
@@ -244,22 +244,19 @@ async function openShow(feedUrl, { force = false } = {}) {
   $('episode-list').innerHTML = spinner('エピソードを取得中…');
 
   try {
-    const [{ feedTitle, episodes }, states] = await Promise.all([
+    const [{ feedTitle, episodes, cached }, states] = await Promise.all([
       fetchFeed(feedUrl, { force }),
       episodeStateMap(feedUrl),
     ]);
     if (show.feedUrl !== feedUrl) return; // 取得中に別画面へ移動していたら破棄
     show.episodes = episodes;
     show.states = states;
-
-    // 表示用キャッシュとしての番組名をフィードの内容で更新する
-    if (feedTitle && feedTitle !== follow.title) {
-      follow.title = feedTitle;
-      await putFollow(follow);
-      show.title = feedTitle;
-      $('show-title').textContent = feedTitle;
-    }
+    await applyFeedTitle(follow, feedTitle);
     renderEpisodes();
+
+    // キャッシュから表示した場合は、裏で更新の有無だけ確かめる。
+    // 変わっていなければ配信元は本文を返さないので、開くたびに呼んでも負担にならない。
+    if (cached && !force) checkForNewEpisodes(feedUrl, follow);
   } catch (err) {
     $('episode-list').innerHTML = `
       <div class="empty">
@@ -268,6 +265,33 @@ async function openShow(feedUrl, { force = false } = {}) {
       </div>`;
     $('episode-retry').addEventListener('click', () => openShow(feedUrl, { force: true }));
   }
+}
+
+/** 番組名は表示用のキャッシュなので、フィードの内容で追従させる */
+async function applyFeedTitle(follow, feedTitle) {
+  if (!feedTitle || feedTitle === follow.title) return;
+  follow.title = feedTitle;
+  await putFollow(follow);
+  show.title = feedTitle;
+  $('show-title').textContent = feedTitle;
+}
+
+/** 表示したあとに、フィードが新しくなっていれば一覧を差し替える */
+async function checkForNewEpisodes(feedUrl, follow) {
+  let result;
+  try {
+    result = await revalidateFeed(feedUrl);
+  } catch {
+    return; // 確かめられなくても、表示済みの内容はそのままでよい
+  }
+  if (!result.changed || show.feedUrl !== feedUrl) return;
+
+  const added = result.episodes.length - show.episodes.length;
+  show.episodes = result.episodes;
+  show.states = await episodeStateMap(feedUrl);
+  await applyFeedTitle(follow, result.feedTitle);
+  renderEpisodes();
+  toast(added > 0 ? `新しいエピソードが ${added} 件あります` : 'エピソード一覧を更新しました');
 }
 
 // 1タップで並び順が反転する（メニューを開く操作を挟まない）

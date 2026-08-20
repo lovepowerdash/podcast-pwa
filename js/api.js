@@ -2,7 +2,7 @@
 // 外部データ取得: iTunes Search API（直接fetch）と RSSフィード（CORSプロキシ経由）
 // ---------------------------------------------------------------------------
 import {
-  FEED_SOURCES, FEED_FETCH_TIMEOUT_MS, ITUNES_SEARCH_ENDPOINT,
+  FEED_SOURCES, RELAY_SOURCE, FEED_FETCH_TIMEOUT_MS, ITUNES_SEARCH_ENDPOINT,
   ITUNES_COUNTRY, ITUNES_LIMIT, FEED_CACHE_TTL_SEC, customFeedSource,
 } from './config.js';
 import { getFeedCache, putFeedCache } from './db.js';
@@ -115,6 +115,63 @@ async function fetchWithTimeout(url) {
   }
 }
 
+/** 一覧の中身が変わったかどうか。件数と各エピソードのIDで判定する */
+function sameEpisodes(a, b) {
+  return a.length === b.length && a.every((ep, i) => ep.episodeId === b[i].episodeId);
+}
+
+async function storeFeed(feedUrl, episodes, validators = {}) {
+  await putFeedCache({
+    feedUrl,
+    rawEpisodes: episodes,
+    cachedAt: Date.now(),
+    ttl: FEED_CACHE_TTL_SEC,
+    // 次回「変わったか」だけを問い合わせるための印。配信元が返さないこともある
+    etag: validators.etag || '',
+    lastModified: validators.lastModified || '',
+  });
+}
+
+/**
+ * フィードが更新されているかを確かめ、更新されていれば取り込む。
+ *
+ * 中継に ETag / Last-Modified を渡すと、変わっていない場合は配信元が本文を返さない。
+ * 数MBのフィードを毎回落とさずに済むので、番組を開くたびに呼んでも負担にならない。
+ * 印を返さない配信元もあるため、その場合は取得した中身を突き合わせて判定する。
+ *
+ * @returns {Promise<{changed: boolean, episodes?: Array, feedTitle?: string}>}
+ */
+export async function revalidateFeed(feedUrl) {
+  const cache = await getFeedCache(feedUrl);
+  const query = [];
+  if (cache?.etag) query.push(`etag=${encodeURIComponent(cache.etag)}`);
+  if (cache?.lastModified) query.push(`modified=${encodeURIComponent(cache.lastModified)}`);
+
+  let res;
+  try {
+    res = await fetchWithTimeout(RELAY_SOURCE.build(feedUrl) + (query.length ? `&${query.join('&')}` : ''));
+  } catch {
+    return { changed: false };
+  }
+
+  // 中継が使えない環境（静的ホスティングのみなど）では、期限切れのときだけ取り直す
+  if (!res.ok && res.status !== 204) {
+    if (!cache || Date.now() - cache.cachedAt < cache.ttl * 1000) return { changed: false };
+    const { feedTitle, episodes } = await fetchAndStore(feedUrl);
+    return { changed: !cache || !sameEpisodes(cache.rawEpisodes, episodes), episodes, feedTitle };
+  }
+
+  if (res.status === 204) return { changed: false }; // 配信元が「変わっていない」と答えた
+
+  const { feedTitle, episodes } = parseFeed(await res.text(), feedUrl);
+  await storeFeed(feedUrl, episodes, {
+    etag: res.headers.get('x-feed-etag'),
+    lastModified: res.headers.get('x-feed-modified'),
+  });
+  if (cache && sameEpisodes(cache.rawEpisodes, episodes)) return { changed: false };
+  return { changed: true, episodes, feedTitle };
+}
+
 async function fetchFromSource(source, feedUrl) {
   const label = source.name;
   let res;
@@ -152,6 +209,13 @@ async function fetchFeedText(feedUrl) {
  * @param {object} [options] force:true でキャッシュを無視して再取得
  * @returns {Promise<{feedTitle:string|null, episodes:Array, cached:boolean}>}
  */
+async function fetchAndStore(feedUrl) {
+  const xml = await fetchFeedText(feedUrl);
+  const { feedTitle, episodes } = parseFeed(xml, feedUrl);
+  await storeFeed(feedUrl, episodes);
+  return { feedTitle, episodes };
+}
+
 export async function fetchFeed(feedUrl, { force = false } = {}) {
   if (!force) {
     const cache = await getFeedCache(feedUrl);
@@ -159,13 +223,5 @@ export async function fetchFeed(feedUrl, { force = false } = {}) {
       return { feedTitle: null, episodes: cache.rawEpisodes, cached: true };
     }
   }
-  const xml = await fetchFeedText(feedUrl);
-  const { feedTitle, episodes } = parseFeed(xml, feedUrl);
-  await putFeedCache({
-    feedUrl,
-    rawEpisodes: episodes,
-    cachedAt: Date.now(),
-    ttl: FEED_CACHE_TTL_SEC,
-  });
-  return { feedTitle, episodes, cached: false };
+  return { ...(await fetchAndStore(feedUrl)), cached: false };
 }

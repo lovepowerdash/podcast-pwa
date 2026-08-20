@@ -4,16 +4,22 @@
 
 // ホーム画面の下部に表示する版。端末に新しいコードが届いているかを目視で確かめるためのもの。
 // 変更を配信するたびに更新する。
-export const APP_VERSION = '2026-08-20 #16';
+export const APP_VERSION = '2026-08-20 #17';
 
 // RSSフィードの取得経路。全経路を同時に投げ、最初に成功したものを採用する。
 //
 // 公開CORSプロキシは「無料・登録不要」の代わりにレスポンスサイズ上限とレート制限があり、
 // エピソード数の多い番組（RSSが数MB）では 413 や切断で失敗する。そのため本命は
 // アプリと同じオリジンで動く中継（functions/api/feed.js）で、公開プロキシは保険。
+// 同一オリジンの中継。相対パスなのでホスト名を持たず、配布先を変えても書き換え不要。
+// 更新の有無だけを問い合わせる条件付き取得にも対応しているのはこの経路だけ。
+export const RELAY_SOURCE = {
+  name: '同一オリジン中継',
+  build: (url) => `./api/feed?url=${encodeURIComponent(url)}`,
+};
+
 export const FEED_SOURCES = [
-  // 同一オリジンの中継。相対パスなのでホスト名を持たず、配布先を変えても書き換え不要。
-  { name: '同一オリジン中継', build: (url) => `./api/feed?url=${encodeURIComponent(url)}` },
+  RELAY_SOURCE,
 
   // 配信元がCORSを許可しているフィードはプロキシ不要。まずそのまま試す（失敗しても数百msで次へ進む）
   { name: '直接取得', build: (url) => url },
