@@ -166,7 +166,12 @@ async function openShow(feedUrl, { force = false } = {}) {
     }
     renderEpisodes();
   } catch (err) {
-    $('episode-list').innerHTML = `<p class="placeholder">${escapeHtml(err.message)}</p>`;
+    $('episode-list').innerHTML = `
+      <div class="empty">
+        <p>${escapeHtml(err.message)}</p>
+        <button class="btn" type="button" id="episode-retry">再試行</button>
+      </div>`;
+    $('episode-retry').addEventListener('click', () => openShow(feedUrl, { force: true }));
   }
 }
 

@@ -2,7 +2,8 @@
 // 外部データ取得: iTunes Search API（直接fetch）と RSSフィード（CORSプロキシ経由）
 // ---------------------------------------------------------------------------
 import {
-  CORS_PROXIES, ITUNES_SEARCH_ENDPOINT, ITUNES_COUNTRY, ITUNES_LIMIT, FEED_CACHE_TTL_SEC,
+  FEED_SOURCES, FEED_FETCH_TIMEOUT_MS, ITUNES_SEARCH_ENDPOINT,
+  ITUNES_COUNTRY, ITUNES_LIMIT, FEED_CACHE_TTL_SEC,
 } from './config.js';
 import { getFeedCache, putFeedCache } from './db.js';
 
@@ -94,17 +95,31 @@ function parseFeed(xmlText, feedUrl) {
   return { feedTitle, episodes };
 }
 
-async function fetchViaProxies(feedUrl) {
+/** 応答が返らない経路で止まらないよう、タイムアウト付きでfetchする */
+async function fetchWithTimeout(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FEED_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { cache: 'no-store', signal: controller.signal, redirect: 'follow' });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchFeedText(feedUrl) {
   const errors = [];
-  for (const proxy of CORS_PROXIES) {
+  for (const source of FEED_SOURCES) {
     try {
-      const res = await fetch(proxy.build(feedUrl), { cache: 'no-store' });
+      const res = await fetchWithTimeout(source.build(feedUrl));
+      // 413 はプロキシのサイズ上限。エピソード数の多い番組で起きるので理由を明示する
+      if (res.status === 413) throw new Error('フィードが大きすぎます (413)');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body = await res.text();
       if (!body.trim()) throw new Error('空のレスポンス');
+      if (!body.includes('<item')) throw new Error('RSSではない応答');
       return body;
     } catch (err) {
-      errors.push(`${proxy.name}: ${err.message}`);
+      errors.push(`${source.name}: ${err.name === 'AbortError' ? 'タイムアウト' : err.message}`);
     }
   }
   throw new Error(`フィードを取得できませんでした（${errors.join(' / ')}）`);
@@ -122,7 +137,7 @@ export async function fetchFeed(feedUrl, { force = false } = {}) {
       return { feedTitle: null, episodes: cache.rawEpisodes, cached: true };
     }
   }
-  const xml = await fetchViaProxies(feedUrl);
+  const xml = await fetchFeedText(feedUrl);
   const { feedTitle, episodes } = parseFeed(xml, feedUrl);
   await putFeedCache({
     feedUrl,

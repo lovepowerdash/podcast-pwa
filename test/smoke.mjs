@@ -48,13 +48,18 @@ const browser = await chromium.launch({
   args: ['--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage();
-page.on('console', (m) => { if (m.type() === 'error') fail.push(`console: ${m.text()}`); });
+// net::ERR_FAILED はテストが意図的に abort した経路のもの（フォールバック検証）なので除く
+page.on('console', (m) => {
+  if (m.type() === 'error' && !m.text().includes('net::ERR_FAILED')) fail.push(`console: ${m.text()}`);
+});
 page.on('pageerror', (e) => fail.push(`pageerror: ${e.message}`));
 
 await page.route('https://itunes.apple.com/search*', (route) => route.fulfill({
   status: 200, contentType: 'application/json',
   body: JSON.stringify({ resultCount: 1, results: [{ collectionName: 'テスト番組', artistName: 'テスト作者', feedUrl: 'https://feed.test/rss.xml', trackCount: 3 }] }),
 }));
+// 配信元が直接fetchを許可していない状況（大半のRSS）を再現する
+await page.route('https://feed.test/rss.xml', (route) => route.abort('failed'));
 await page.route('**api.allorigins.win**', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
 
 const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? ` — ${extra}` : ''}`); if (!ok) fail.push(name); };
@@ -147,6 +152,24 @@ const read = await page.evaluate(() => new Promise((resolve) => {
   };
 }));
 check('最後まで再生すると既読になる', read.some((r) => r.isRead === true));
+
+// --- 配信元がCORSを許可している場合はプロキシを通さず直接取得する
+await page.unroute('https://feed.test/rss.xml');
+await page.route('https://feed.test/rss.xml', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
+await page.unroute('**api.allorigins.win**');
+await page.route('**api.allorigins.win**', (route) => route.abort('failed'));
+await page.click('#show-refresh');
+await page.waitForTimeout(1200);
+check('CORS許可済みフィードは直接取得できる', (await page.locator('[data-episode]').count()) === 3);
+
+// --- 全経路が失敗したら再試行ボタンを出す
+await page.unroute('https://feed.test/rss.xml');
+await page.route('https://feed.test/rss.xml', (route) => route.abort('failed'));
+await page.route('**api.codetabs.com**', (route) => route.abort('failed'));
+await page.route('**corsproxy.io**', (route) => route.abort('failed'));
+await page.click('#show-refresh');
+await page.waitForSelector('#episode-retry');
+check('全経路失敗時に理由と再試行ボタンを表示', (await page.textContent('#episode-list')).includes('フィードを取得できませんでした'));
 
 // --- Service Worker / manifest
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));

@@ -10,6 +10,7 @@ GitHub Pages などの無料枠にそのまま置いて iPhone のホーム画�
 | エピソード一覧 | 番組ごとに一覧表示（タイトル / 公開日 / 再生時間 / 既読・未読） |
 | **極めて少ない手数での並び替え** | 一覧上部に**常時固定**したトグルを 1 タップで昇順⇄降順が反転（メニューを開く操作なし）。番組ごとに設定を保存 |
 | バックグラウンド再生 | `<audio>` + Media Session API。ロック画面から再生 / 一時停止 / 15秒シーク |
+| フィード取得の冗長化 | 直接取得 → 公開プロキシ3種を順に試し、各経路15秒でタイムアウト。全滅時は理由と再試行ボタンを表示 |
 | iPhone (Safari/PWA) | standalone 表示、セーフエリア対応、初回再生は必ずタップイベント内で `play()` |
 
 意図的に実装していないもの: プッシュ通知 / ダウンロード・オフライン再生（ストリーミングのみ）/ 番組アートワーク表示。
@@ -40,12 +41,33 @@ npm start   # http://localhost:8080 で配信
 
 外部サービスに依存する値は `js/config.js` の 1 箇所に集約してある。
 
-- `CORS_PROXIES` — RSS 取得に使う公開 CORS プロキシ。上から順に試し、失敗したら次へフォールバックする。
-  停止・仕様変更のリスクがあるため、動かなくなったらここを書き換える
+- `FEED_SOURCES` — RSS の取得経路。上から順に試し、失敗したら次へフォールバックする。
+  「直接取得」→ 公開 CORS プロキシ 3 種の順。動かなくなったらここを書き換える
+- `FEED_FETCH_TIMEOUT_MS` — 1 経路あたりの上限時間（既定 15 秒）。応答しないプロキシで待たされないため
 - `FEED_CACHE_TTL_SEC` — フィードキャッシュの有効期限（既定 900 秒 = 15 分）
 - `SEEK_SECONDS`、`PLAYBACK_RATES`、`READ_RATIO`（既読とみなす再生割合）
 
 iTunes Search API は CORS 許可済みのためプロキシを通さず直接 fetch している。
+
+### 自前の CORS プロキシを立てる（推奨）
+
+無料の公開 CORS プロキシはレスポンスサイズ上限とレート制限がある。エピソード数の多い番組は
+RSS が数 MB になるため、`413 Payload Too Large` やタイムアウトで取得に失敗する。
+実際にエピソード数の多い番組で 3 経路とも失敗することが確認できている。
+
+`worker/cors-proxy.js` を Cloudflare Workers（無料枠）に置けばこの制限が無くなる。
+
+1. https://dash.cloudflare.com/ → Workers & Pages → Create → Start with Hello World → Deploy
+2. 作成した Worker の Edit code を開き、`worker/cors-proxy.js` の中身を貼り付けて Deploy
+3. 発行された `https://<名前>.<アカウント>.workers.dev` を控える
+4. `js/config.js` の `FEED_SOURCES` 先頭にあるコメント行を有効にして URL を差し替える
+
+```js
+{ name: 'my-worker', build: (url) => `https://<名前>.workers.dev/?url=${encodeURIComponent(url)}` },
+```
+
+`worker/cors-proxy.js` の `ALLOWED_ORIGINS` に自分の公開 URL を書いておくこと（第三者に
+踏み台として使われないため）。レスポンスはストリームのまま中継するのでフィードのサイズ制限はない。
 
 ## データ構造（IndexedDB: `podcast_pwa_db`）
 
@@ -69,6 +91,7 @@ js/player.js          <audio> と Media Session
 js/ui.js              表示ヘルパー
 js/app.js             ルーティングと各画面の描画
 sw.js                 アプリシェルのみキャッシュ（音声・フィードはキャッシュしない）
+worker/cors-proxy.js  自前CORSプロキシ（Cloudflare Workers 用・任意）
 test/smoke.mjs        Playwright によるエンドツーエンドのスモークテスト
 ```
 

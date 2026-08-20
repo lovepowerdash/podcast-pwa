@@ -2,7 +2,7 @@
 // アプリシェルのみをキャッシュする Service Worker。
 // エピソードのダウンロード/オフライン再生は非要件のため、音声とフィードは一切キャッシュしない。
 // ---------------------------------------------------------------------------
-const CACHE = 'podcast-pwa-v1';
+const CACHE = 'podcast-pwa-v2';
 
 const APP_SHELL = [
   './',
@@ -51,14 +51,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 静的アセットはキャッシュ優先（更新はキャッシュ名のバージョンで切り替える）
+  // 静的アセットもネットワーク優先。オフライン再生は非要件で、キャッシュはあくまで
+  // 「圏外でもアプリが開く」ための保険なので、更新の反映を遅らせないことを優先する。
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-      if (response.ok) {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(request, copy));
-      }
-      return response;
-    })),
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request)),
   );
 });
