@@ -348,6 +348,14 @@ check('フォロー中一覧に番組画像が出る',
 await page.evaluate(() => { document.querySelector('.row__art').dataset.kept = '1'; });
 await page.click('a[href="/search"]');
 await page.waitForSelector('#screen-search:not([hidden])');
+
+// 入り直したら前回の検索は残っていない
+check('再訪時に前回の検索結果が消えている',
+  (await page.textContent('#search-list')).trim() === '',
+  await page.textContent('#search-list'));
+check('再訪時に入力欄も空になっている', (await page.inputValue('#search-input')) === '');
+check('再訪時は消去ボタンも出ていない', await page.isHidden('#search-clear'));
+
 await page.goBack();
 await page.waitForSelector('#screen-home:not([hidden])');
 check('内容が同じなら一覧を描き直さない',

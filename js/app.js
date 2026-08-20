@@ -90,7 +90,9 @@ function route() {
     // 画面を出すのは openShow の中。中身が揃うまでは前の画面のままにする
     openShow(params.get('feed') || '');
   } else if (path === '/search') {
-    syncSearchClear();
+    // 他の画面から入り直したときは前回の検索を持ち越さない。
+    // プレイヤーや使い方を重ねて閉じた場合は画面が出たままなので、そのまま残す
+    if ($('screen-search').hidden) resetSearch();
     showScreen('search');
     $('search-input').focus({ preventScroll: true });
   } else {
@@ -535,6 +537,14 @@ let searchResults = [];
 /** 入力があるときだけ消去ボタンを出す */
 function syncSearchClear() {
   $('search-clear').hidden = $('search-input').value.length === 0;
+}
+
+/** 検索画面を初期状態に戻す */
+function resetSearch() {
+  $('search-input').value = '';
+  searchResults = [];
+  $('search-list').innerHTML = '';
+  syncSearchClear();
 }
 
 $('search-input').addEventListener('input', syncSearchClear);
