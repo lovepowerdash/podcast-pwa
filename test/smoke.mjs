@@ -191,6 +191,22 @@ await page.click('.toast__action');
 await page.waitForTimeout(400);
 check('取り消すと元の状態に戻る', (await page.locator('.ep.is-read').count()) === 2, `${await page.locator('.ep.is-read').count()}件`);
 
+// --- 番組まるごと未再生に戻す
+page.once('dialog', (d) => d.accept());
+await page.click('#show-reset');
+await page.waitForTimeout(400);
+check('全て未再生に戻す', (await page.locator('.ep.is-read').count()) === 0, `${await page.locator('.ep.is-read').count()}件`);
+check('戻す対象が無ければ何もしない', await (async () => {
+  // 確認ダイアログを出さずに通知だけ出すのが期待動作（dialogを待ち受けない）
+  await page.click('#show-reset');
+  await page.waitForTimeout(300);
+  return (await page.textContent('#toast')).includes('戻す回はありません');
+})());
+// 以降のフィルタ検証のために、第1回と第2回を再生済みへ戻す
+page.once('dialog', (d) => d.accept());
+await page.click('[data-mark] >> nth=1');
+await page.waitForTimeout(400);
+
 // --- 再生済みを隠すフィルタ
 check('フィルタの初期ラベル', (await page.textContent('#filter-label')) === 'すべて表示');
 await page.click('#filter-toggle');

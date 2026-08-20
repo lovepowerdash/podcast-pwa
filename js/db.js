@@ -114,7 +114,8 @@ export function putEpisodeState(state) {
   return tx('episodes', 'readwrite', (s) => s.put(state));
 }
 
-function baseState(episode) {
+/** まだ再生記録が無いエピソードの初期状態 */
+export function newEpisodeState(episode) {
   return {
     episodeId: episode.episodeId,
     feedUrl: episode.feedUrl,
@@ -130,7 +131,7 @@ function baseState(episode) {
 
 /** 既存レコードにパッチを当てて保存する（無ければ episode の情報から作る） */
 export async function updateEpisodeState(episode, patch) {
-  const current = (await getEpisodeState(episode.episodeId)) || baseState(episode);
+  const current = (await getEpisodeState(episode.episodeId)) || newEpisodeState(episode);
   const next = { ...current, ...patch, title: episode.title, audioUrl: episode.audioUrl };
   await putEpisodeState(next);
   return next;
@@ -149,11 +150,25 @@ export async function setEpisodesRead(episodes, isRead) {
     for (const episode of episodes) {
       const request = store.get(episode.episodeId);
       request.onsuccess = () => {
-        const current = request.result || baseState(episode);
-        // 既読にするときは再生位置も先頭に戻す（途中まで聴いた印を残さない）
-        store.put({ ...current, isRead, position: isRead ? 0 : current.position });
+        const current = request.result || newEpisodeState(episode);
+        // 既読/未再生のどちらに倒す場合も再生位置は先頭に戻す
+        store.put({ ...current, isRead, position: 0 });
       };
     }
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+/** 取り消し用に、控えておいた状態をそのまま書き戻す */
+export async function putEpisodeStates(states) {
+  if (states.length === 0) return;
+  const db = await open();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction('episodes', 'readwrite');
+    const store = transaction.objectStore('episodes');
+    for (const state of states) store.put(state);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);

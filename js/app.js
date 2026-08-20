@@ -4,7 +4,7 @@
 import { searchPodcasts, fetchFeed } from './api.js';
 import {
   listFollows, getFollow, addFollow, removeFollow, putFollow,
-  setSortOrder, setHideRead, episodeStateMap, setEpisodesRead,
+  setSortOrder, setHideRead, episodeStateMap, setEpisodesRead, putEpisodeStates, newEpisodeState,
 } from './db.js';
 import * as player from './player.js';
 import { CUSTOM_PROXY_KEY, APP_VERSION } from './config.js';
@@ -265,6 +265,27 @@ $('show-refresh').addEventListener('click', () => {
   if (show.feedUrl) openShow(show.feedUrl, { force: true });
 });
 
+/** 取り消しで元通りにできるよう、変更前の状態を控えておく */
+function snapshotStates(episodes) {
+  return episodes.map((ep) => show.states.get(ep.episodeId) || newEpisodeState(ep));
+}
+
+async function applyBulkChange(episodes, isRead, doneMessage) {
+  const before = snapshotStates(episodes);
+  await setEpisodesRead(episodes, isRead);
+  show.states = await episodeStateMap(show.feedUrl);
+  renderEpisodes();
+  toast(doneMessage, {
+    label: '取り消す',
+    run: async () => {
+      // 既読かどうかだけでなく再生位置も含めて、そのまま書き戻す
+      await putEpisodeStates(before);
+      show.states = await episodeStateMap(show.feedUrl);
+      renderEpisodes();
+    },
+  });
+}
+
 /**
  * 他のアプリから乗り換えた場合、どこまで聴いたかを引き継げない。
  * 「最初の回からこの回まで」をまとめて再生済みにして、続きから始められるようにする。
@@ -279,19 +300,25 @@ async function markThrough(episode) {
     return;
   }
   if (!confirm(`「${episode.title}」までの ${changing.length} 件を再生済みにしますか？`)) return;
-
-  await setEpisodesRead(targets, true);
-  show.states = await episodeStateMap(show.feedUrl);
-  renderEpisodes();
-  toast(`${changing.length} 件を再生済みにしました`, {
-    label: '取り消す',
-    run: async () => {
-      await setEpisodesRead(changing, false);
-      show.states = await episodeStateMap(show.feedUrl);
-      renderEpisodes();
-    },
-  });
+  await applyBulkChange(targets, true, `${changing.length} 件を再生済みにしました`);
 }
+
+/** 番組まるごと未再生に戻す（付け直したい場合や、間違えて一括既読にした場合の受け皿） */
+async function resetShow() {
+  const changing = show.episodes.filter((ep) => {
+    const state = show.states.get(ep.episodeId);
+    return state?.isRead || (state?.position || 0) > 0;
+  });
+
+  if (changing.length === 0) {
+    toast('未再生に戻す回はありません');
+    return;
+  }
+  if (!confirm(`「${show.title}」の ${changing.length} 件を未再生に戻しますか？\n再生途中の位置も消えます。`)) return;
+  await applyBulkChange(changing, false, `${changing.length} 件を未再生に戻しました`);
+}
+
+$('show-reset').addEventListener('click', () => { if (show.feedUrl) resetShow(); });
 
 // iOS ではユーザー操作のイベントハンドラ内で同期的に play() を呼ぶ必要があるため、
 // 再生位置は描画時に読み込んだ show.states から同期的に取り出す（await を挟まない）

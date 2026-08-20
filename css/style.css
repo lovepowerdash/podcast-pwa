@@ -329,6 +329,7 @@ button, input { font: inherit; color: inherit; }
   bottom: calc(var(--mini-h) + var(--safe-bottom) + 16px);
   transform: translateX(-50%);
   z-index: 40;
+  width: max-content;
   max-width: calc(100% - 32px);
   padding: 10px 16px;
   border-radius: 12px;
