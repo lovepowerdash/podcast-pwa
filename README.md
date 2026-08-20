@@ -29,9 +29,8 @@ GitHub Pages などの無料枠にそのまま置いて iPhone のホーム画�
 
 - 公開 URL: https://lovepowerdash.github.io/podcast-pwa/ （GitHub Pages / `main` の root）
 - フィード取得: `https://podcast-proxy.lovepowerdash.workers.dev`（Cloudflare Workers 無料枠）
-  - デプロイ済みのコードは README 下部の**短縮版**（スマホから手で貼り付けたもの）。
-    リポジトリの `worker/cors-proxy.js` は同じ動作のフル版で、まだ Worker には反映していない。
-    Cloudflare の Connect GitHub で `worker` ディレクトリを繋げば、以後は push だけで同期される
+  - デプロイ済みの内容は `worker/cors-proxy.js` と同一。Worker を変更したくなったら、
+    Cloudflare の Connect GitHub で `worker` ディレクトリを繋げば以後は push だけで同期される
 - iPhone 実機で確認済み: フィード取得 / 並び替え / 再生 / 既読・再生位置の保存 /
   バックグラウンド再生 / ロック画面操作 / ホーム画面に追加しての standalone 起動
 
@@ -74,24 +73,10 @@ RSS が数 MB になるため、`413 Payload Too Large` やタイムアウトで
 
 1. https://dash.cloudflare.com/ → Workers & Pages → Create → Start with Hello World → Deploy
 2. 作成した Worker の Edit code を開き、`worker/cors-proxy.js` の中身を貼り付けて Deploy
-
-   スマホなど貼り付けが厳しい環境向けの短縮版（機能は同じ）:
-
-   ```js
-   export default {
-     async fetch(req) {
-       const o = req.headers.get('origin') === 'https://lovepowerdash.github.io' ? 'https://lovepowerdash.github.io' : '';
-       const u = new URL(req.url).searchParams.get('url');
-       if (!o || !u) return new Response('no', { status: 403 });
-       const r = await fetch(u, { headers: { 'user-agent': 'podcast-pwa' }, cf: { cacheTtl: 300, cacheEverything: true } });
-       return new Response(r.body, { status: r.status, headers: { 'access-control-allow-origin': o, 'content-type': 'application/xml' } });
-     }
-   };
-   ```
-
-   ブラウザでコードを編集したくない場合は、Create → **Connect GitHub** でこのリポジトリを選び、
+   （ブラウザでコードを編集したくない場合は、Create → **Connect GitHub** でこのリポジトリを選び、
    ルートディレクトリに `worker` を指定する。`worker/wrangler.toml` を読んで自動でデプロイされ、
-   以後は push するだけで更新される。
+   以後は push するだけで更新される）
+
 3. 発行された `https://<名前>.<アカウント>.workers.dev` を控える
 4. `js/config.js` の `FEED_SOURCES` 先頭にある `worker` の URL を自分のものに書き換える
    （ここに書けば全端末・全利用者に効く。既定では `podcast-proxy.lovepowerdash.workers.dev`）
@@ -103,8 +88,8 @@ RSS が数 MB になるため、`413 Payload Too Large` やタイムアウトで
 再デプロイせずにその端末だけで試したい場合は、アプリのホーム画面左上の歯車から
 `https://<名前>.workers.dev/?url=` を入力する（localStorage に保存され `FEED_SOURCES` より優先される）。
 
-`worker/cors-proxy.js` の `ALLOWED_ORIGINS` に自分の公開 URL を書いておくこと（第三者に
-踏み台として使われないため）。レスポンスはストリームのまま中継するのでフィードのサイズ制限はない。
+`worker/cors-proxy.js` の `ALLOWED_ORIGIN` を自分の公開 URL にすること（第三者に踏み台として
+使われないため）。レスポンスはストリームのまま中継するのでフィードのサイズ制限はない。
 
 ## データ構造（IndexedDB: `podcast_pwa_db`）
 
