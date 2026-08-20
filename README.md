@@ -120,7 +120,7 @@ js/ui.js              表示ヘルパー
 js/app.js             ルーティングと各画面の描画
 sw.js                 アプリシェルのみキャッシュ（音声・フィードはキャッシュしない）
 functions/api/feed.js RSSフィードの中継（Cloudflare Pages Functions）
-icons/source.png      アイコンの元画像。各サイズはここから生成する
+icons/source.png      アイコンの元画像（1024）。各サイズはここから生成する
 test/smoke.mjs        Playwright によるエンドツーエンドのスモークテスト
 ```
 
@@ -135,6 +135,19 @@ test/smoke.mjs        Playwright によるエンドツーエンドのスモー�
 - Service Worker は同一オリジンの取得を `cache: 'no-cache'` で行う。
   ホスティングが付ける `max-age` により、素直に取得すると十数分ぶん古いコードが
   返って原因の切り分けができなくなるため
+
+## アイコン
+
+`icons/source.png` から各サイズを生成している。いずれも 256 色に減色した PNG。
+
+| ファイル | 用途 | 加工 |
+|---|---|---|
+| `icon-192.png` / `icon-512.png` | 一般 | そのまま縮小 |
+| `icon-512-maskable.png` | Android | 丸や角丸に切り抜かれても欠けないよう中央 90% に配置。元画像の角の黒が残らないよう、同じ角丸で切り抜いてから背景色に載せている |
+| `apple-touch-icon.png` | iOS のホーム画面・タブ | iOS のマスクと元画像の角丸が二重にならないよう、わずかに拡大して角を落とす。iOS が確実に読むのは PNG なのでこの形式に固定 |
+
+減色しないと 512 が 300KB 近くになる。WebP のほうがさらに小さくなるが、この絵柄では
+減色 PNG のほうが元画像に忠実（RMSE 1.24 対 1.89）で、形式も 1 つで済むため PNG に揃えている。
 
 ## テスト
 
