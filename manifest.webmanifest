@@ -1,7 +1,7 @@
 {
   "name": "podflow",
   "short_name": "podflow",
-  "description": "並び替えは一覧の上で1タップ。番組ごとに向きを覚え、連続再生もその順で進むポッドキャストアプリ",
+  "description": "余計な機能がないポッドキャストアプリ",
   "lang": "ja",
   "start_url": "/",
   "scope": "/",
