@@ -423,7 +423,8 @@ await openShowFromHome();
 await page.waitForFunction(() => document.querySelectorAll('[data-episode]').length === 4, null, { timeout: 8000 }).catch(() => {});
 check('新しい回があれば自動で取り込む', (await page.locator('[data-episode]').count()) === 4,
   `${await page.locator('[data-episode]').count()}件`);
-check('新着があったことを知らせる', (await page.textContent('#toast')).includes('新しいエピソードが 1 件'),
+check('新着があっても知らせは出さない',
+  !/新しいエピソード|一覧を更新/.test(await page.textContent('#toast')),
   await page.textContent('#toast'));
 // 中継が差分だけを返す場合（増えた回だけ受け取って手持ちに足す）
 const partialItem = `<?xml version="1.0" encoding="UTF-8"?>
@@ -453,7 +454,8 @@ await page.waitForFunction(() => document.querySelectorAll('[data-episode]').len
 check('手持ちの最新回を目印として送る', askedAfter === 'ep-4', String(askedAfter));
 check('差分だけ受け取って手持ちに足す', (await page.locator('[data-episode]').count()) === 5,
   `${await page.locator('[data-episode]').count()}件`);
-check('差分でも新着件数を知らせる', (await page.textContent('#toast')).includes('新しいエピソードが 1 件'),
+check('差分で増えたときも知らせは出さない',
+  !/新しいエピソード|一覧を更新/.test(await page.textContent('#toast')),
   await page.textContent('#toast'));
 
 // 差分が空（新着なし）なら何も起きない

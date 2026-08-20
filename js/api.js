@@ -187,9 +187,7 @@ export async function revalidateFeed(feedUrl) {
     const added = episodes.filter((ep) => !known.has(ep.episodeId));
     const merged = [...added, ...cache.rawEpisodes];
     await storeFeed(feedUrl, merged, validators);
-    return added.length > 0
-      ? { changed: true, episodes: merged, feedTitle, added: added.length }
-      : { changed: false };
+    return added.length > 0 ? { changed: true, episodes: merged, feedTitle } : { changed: false };
   }
 
   await storeFeed(feedUrl, episodes, validators);

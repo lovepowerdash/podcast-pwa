@@ -427,7 +427,11 @@ async function rememberLatestPubDate(follow, episodes) {
   } catch { /* 書けなくても表示は続く。次に開いたときに書き直す */ }
 }
 
-/** 表示したあとに、フィードが新しくなっていれば一覧を差し替える */
+/**
+ * 表示したあとに、フィードが新しくなっていれば一覧を差し替える。
+ * 見つかっても知らせは出さない。増えた回は一覧に並ぶだけで、
+ * 気づくかどうかは見る側に任せる（番組一覧の更新日も同じ考え）。
+ */
 async function checkForNewEpisodes(feedUrl, follow) {
   let result;
   try {
@@ -437,13 +441,11 @@ async function checkForNewEpisodes(feedUrl, follow) {
   }
   if (!result.changed || show.feedUrl !== feedUrl) return;
 
-  const added = result.added ?? (result.episodes.length - show.episodes.length);
   show.episodes = result.episodes;
   show.states = await episodeStateMap(feedUrl);
   await applyFeedTitle(follow, result.feedTitle);
   await rememberLatestPubDate(follow, result.episodes);
   renderEpisodes();
-  toast(added > 0 ? `新しいエピソードが ${added} 件あります` : 'エピソード一覧を更新しました');
 }
 
 // 1タップで並び順が反転する（メニューを開く操作を挟まない）
