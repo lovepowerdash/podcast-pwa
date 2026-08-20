@@ -131,7 +131,7 @@ function installTip() {
 
   const android = /android/i.test(navigator.userAgent);
   const how = android
-    ? 'ブラウザのメニュー（右上の ⋮ ）から「アプリをインストール」または「ホーム画面に追加」を選ぶと、'
+    ? 'ブラウザのメニュー（ ⋮ ）から「アプリをインストール」または「ホーム画面に追加」を選ぶと、'
     : 'Safariの共有ボタン<svg class="tip__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><polyline points="8 7 12 3 16 7"/><path d="M6 12v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7"/></svg>から「ホーム画面に追加」を選ぶと、';
   return `
       <div class="tip">
