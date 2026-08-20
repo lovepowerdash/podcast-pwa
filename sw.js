@@ -2,7 +2,7 @@
 // アプリシェルのみをキャッシュする Service Worker。
 // エピソードのダウンロード/オフライン再生は非要件のため、音声とフィードは一切キャッシュしない。
 // ---------------------------------------------------------------------------
-const CACHE = 'podcast-pwa-v2';
+const CACHE = 'podcast-pwa-v3';
 
 const APP_SHELL = [
   './',
@@ -43,10 +43,15 @@ self.addEventListener('fetch', (event) => {
   // 音声ファイル・RSSプロキシ・iTunes Search API は常にネットワークへ通す
   if (url.origin !== self.location.origin) return;
 
+  // GitHub Pages は max-age を付けて配信するため、素直に fetch すると Safari の
+  // HTTPキャッシュが数分〜十数分ぶん古いコードを返す。更新の反映が遅れて原因の切り分けが
+  // できなくなるので、同一オリジンの取得は常にサーバーへ確認しに行く（ETagで差分は出ない）。
+  const revalidate = (req) => fetch(req.url, { cache: 'no-cache' });
+
   // 画面遷移はまずネットワーク、オフライン時のみキャッシュ済みシェルを返す
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match('./index.html')),
+      revalidate(request).catch(() => caches.match('./index.html')),
     );
     return;
   }
@@ -54,7 +59,7 @@ self.addEventListener('fetch', (event) => {
   // 静的アセットもネットワーク優先。オフライン再生は非要件で、キャッシュはあくまで
   // 「圏外でもアプリが開く」ための保険なので、更新の反映を遅らせないことを優先する。
   event.respondWith(
-    fetch(request)
+    revalidate(request)
       .then((response) => {
         if (response.ok) {
           const copy = response.clone();

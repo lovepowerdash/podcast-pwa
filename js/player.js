@@ -16,6 +16,24 @@ let readRevision = 0;    // 既読フラグを書き込むたびに増える。�
 let autoAdvancing = false;   // いま自動送りの最中か
 let autoAdvanceBlocked = null; // 自動送りがブラウザに拒否された理由（UIで知らせる）
 let advancedFrom = null;     // 送り済みのepisodeId。二重に送らないための目印
+let userPaused = false;      // 直前の一時停止が利用者の操作によるものか
+
+// 実機（特にiOS）で何が起きたかを後から確認するための記録。
+// 開発者コンソールを開けない端末で切り分けるための唯一の手段なので残しておく。
+const eventLog = [];
+
+function log(name, extra = '') {
+  const at = new Date().toLocaleTimeString('ja-JP');
+  const pos = Number.isFinite(audio.duration)
+    ? ` ${audio.currentTime.toFixed(1)}/${audio.duration.toFixed(1)}s`
+    : ` ${audio.currentTime.toFixed(1)}s`;
+  eventLog.push(`${at} ${name}${pos}${extra ? ` ${extra}` : ''}`);
+  if (eventLog.length > 60) eventLog.shift();
+}
+
+export function diagnostics() {
+  return eventLog.length ? eventLog.join('\n') : '（まだ記録がありません）';
+}
 
 export function subscribe(fn) {
   listeners.add(fn);
@@ -95,10 +113,14 @@ export function setQueue(nextQueue) {
   queue = nextQueue;
 }
 
-/** 再生位置が終端に達しているか。ended が発火しない環境の判定に使う */
+/**
+ * 再生位置が終端に達しているか。ended が発火しない環境の判定に使う。
+ * MP3の duration は実際の長さとずれることがあるため、長い回ほど余裕を持たせる。
+ */
 function isAtEnd() {
   if (!current || !Number.isFinite(audio.duration) || audio.duration <= 0) return false;
-  return audio.duration - audio.currentTime <= 0.6;
+  const remaining = audio.duration - audio.currentTime;
+  return remaining <= Math.max(2, audio.duration * 0.01);
 }
 
 /** キュー内で現在の前後にあるエピソードを返す */
@@ -117,8 +139,8 @@ function jump(offset) {
 function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
   const handlers = {
-    play: () => { audio.play().catch(() => {}); },
-    pause: () => audio.pause(),
+    play: () => { userPaused = false; audio.play().catch(() => {}); },
+    pause: () => { userPaused = true; audio.pause(); },
     seekbackward: (details) => seekBy(-(details?.seekOffset || SEEK_SECONDS)),
     seekforward: (details) => seekBy(details?.seekOffset || SEEK_SECONDS),
     seekto: (details) => { if (details?.seekTime != null) seekTo(details.seekTime); },
@@ -163,6 +185,7 @@ export function play(episode, showTitle, startAt = 0, nextQueue = null) {
         // 自動送りが拒否された場合は黙って止まらず、理由を画面に出す。
         // メタデータは次の回のままなので、ロック画面の再生ボタンで続きから再開できる。
         if (auto) autoAdvanceBlocked = err?.name || 'PlaybackError';
+        log('play-rejected', err?.name || '');
         emit();
       },
     );
@@ -173,8 +196,13 @@ export function play(episode, showTitle, startAt = 0, nextQueue = null) {
 
 export function toggle() {
   if (!current) return;
-  if (audio.paused) audio.play().catch(() => {});
-  else audio.pause();
+  if (audio.paused) {
+    userPaused = false;
+    audio.play().catch(() => {});
+  } else {
+    userPaused = true;
+    audio.pause();
+  }
 }
 
 export function seekBy(seconds) {
@@ -215,18 +243,22 @@ audio.addEventListener('loadedmetadata', () => {
   updatePlaybackState();
   emit();
 });
-audio.addEventListener('play', () => { updatePlaybackState(); emit(); });
+audio.addEventListener('play', () => { log('play'); userPaused = false; updatePlaybackState(); emit(); });
+audio.addEventListener('stalled', () => log('stalled'));
+audio.addEventListener('waiting', () => log('waiting'));
 audio.addEventListener('pause', () => {
+  log('pause', userPaused ? '(操作)' : '(自動)');
   persist({ force: true });
   updatePlaybackState();
   emit();
-  // ended が発火しないまま終端で停止した場合の受け皿
-  if (isAtEnd()) finishAndAdvance();
+  // ended が発火しないまま終端で止まった場合の受け皿。
+  // 利用者が押した一時停止と、再生し切って止まったものを区別する。
+  if (!userPaused && isAtEnd()) finishAndAdvance('pause');
 });
 audio.addEventListener('timeupdate', () => {
   persist();
   emit();
-  if (audio.paused && isAtEnd()) finishAndAdvance();
+  if (audio.paused && !userPaused && isAtEnd()) finishAndAdvance('timeupdate');
 });
 /**
  * 1本を聴き終えたときの処理。既読にして次の回へ送る。
@@ -234,10 +266,11 @@ audio.addEventListener('timeupdate', () => {
  * iOS では末尾までシークした場合などに ended が発火せず pause で終わることがあるため、
  * ended だけに頼らず「終端に達した」状態からも呼ぶ。二重に送らないよう印を付ける。
  */
-function finishAndAdvance() {
+function finishAndAdvance(reason) {
   const finished = current;
   if (!finished || advancedFrom === finished.episodeId) return;
   advancedFrom = finished.episodeId;
+  log('advance', `(${reason})`);
 
   updateEpisodeState(finished, { isRead: true, position: 0, lastPlayedAt: Date.now() })
     .then(markReadWritten, () => {});
@@ -247,6 +280,7 @@ function finishAndAdvance() {
   const next = neighbour(1);
   if (next) {
     autoAdvancing = true;
+    userPaused = false;
     try {
       play(next, finished.showTitle, next.resumeAt || 0);
     } finally {
@@ -254,17 +288,25 @@ function finishAndAdvance() {
     }
     return;
   }
+  log('advance-skipped', `queue=${queue.length}`);
   updatePlaybackState();
   emit();
 }
 
-audio.addEventListener('ended', finishAndAdvance);
-audio.addEventListener('error', () => emit());
+audio.addEventListener('ended', () => { log('ended'); finishAndAdvance('ended'); });
+audio.addEventListener('error', () => { log('error', audio.error ? `code=${audio.error.code}` : ''); emit(); });
 
 // アプリが背面に回る／閉じられる直前に取りこぼしなく保存する
 window.addEventListener('pagehide', () => persist({ force: true }));
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') persist({ force: true });
+  if (document.visibilityState === 'hidden') {
+    log('hidden');
+    persist({ force: true });
+    return;
+  }
+  log('visible');
+  // 画面を消している間はJSの実行が止まることがある。戻ってきた時点で終端に達していたら送る。
+  if (audio.paused && !userPaused && isAtEnd()) finishAndAdvance('visible');
 });
 
 setupMediaSession();

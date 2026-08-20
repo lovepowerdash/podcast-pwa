@@ -210,6 +210,13 @@ await page.click('#episode-retry');
 await page.waitForSelector('[data-episode]', { timeout: 10000 });
 check('自前プロキシの設定が最優先で使われる', (await page.locator('[data-episode]').count()) === 3);
 
+// --- 版の表示と診断記録
+await page.click('a[href="#/"]');
+await page.waitForSelector('#version');
+check('ホームに版が表示される', /\d{4}-\d{2}-\d{2}/.test(await page.textContent('#version')), await page.textContent('#version'));
+page.once('dialog', (d) => d.dismiss());
+await page.click('#version');
+
 // --- Service Worker / manifest
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));
 const manifest = await (await page.request.get('http://localhost:8099/manifest.webmanifest')).json();

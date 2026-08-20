@@ -7,7 +7,7 @@ import {
   setSortOrder, setHideRead, episodeStateMap,
 } from './db.js';
 import * as player from './player.js';
-import { CUSTOM_PROXY_KEY } from './config.js';
+import { CUSTOM_PROXY_KEY, APP_VERSION } from './config.js';
 import { $, escapeHtml, formatTime, formatDuration, formatDate, toast, spinner } from './ui.js';
 
 // 現在のエピソード一覧画面が扱っている番組の状態
@@ -67,12 +67,15 @@ async function renderHome() {
   const list = $('home-list');
   const follows = await listFollows();
 
+  // 端末に届いている版を確認できるようにしておく（タップで再生まわりの記録を表示）
+  const footer = `<button class="version" type="button" id="version">${escapeHtml(APP_VERSION)}</button>`;
+
   if (follows.length === 0) {
     list.innerHTML = `
       <div class="empty">
         <p>フォロー中の番組はまだありません。</p>
         <a class="btn" href="#/search">番組を検索する</a>
-      </div>`;
+      </div>${footer}`;
     return;
   }
 
@@ -83,7 +86,7 @@ async function renderHome() {
         <span class="row__meta">${f.sortOrder === 'asc' ? '古い順' : '新しい順'}で表示</span>
       </a>
       <button class="row__remove" type="button" data-unfollow="${escapeHtml(f.feedUrl)}" aria-label="フォローを解除">✕</button>
-    </div>`).join('');
+    </div>`).join('') + footer;
 }
 
 // 公開プロキシが使えない番組向けに、自前プロキシのURLを端末側で差し替えられるようにする。
@@ -108,6 +111,12 @@ $('home-settings').addEventListener('click', () => {
 });
 
 $('home-list').addEventListener('click', async (event) => {
+  // 実機で何が起きたかを確認するための記録（開発者コンソールが使えないため）
+  if (event.target.closest('#version')) {
+    alert(`版: ${APP_VERSION}\n\n再生まわりの記録:\n${player.diagnostics()}`);
+    return;
+  }
+
   const button = event.target.closest('[data-unfollow]');
   if (!button) return;
   const feedUrl = button.dataset.unfollow;

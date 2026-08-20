@@ -133,6 +133,18 @@ worker/wrangler.toml  上記をGitHub連携で自動デプロイするための�
 test/smoke.mjs        Playwright によるエンドツーエンドのスモークテスト
 ```
 
+## 実機での切り分け
+
+開発者コンソールが使えない端末で原因を追うための仕掛けを入れてある。
+
+- ホーム画面の一番下に**版**（`js/config.js` の `APP_VERSION`）を表示する。
+  端末に新しいコードが届いているかはここで判断する
+- その版をタップすると、再生まわりのイベント記録（`play` / `pause` / `ended` /
+  `advance` / `play-rejected` など、時刻と再生位置つき）を表示する
+- Service Worker は同一オリジンの取得を `cache: 'no-cache'` で行う。
+  GitHub Pages が付ける `max-age` により、素直に取得すると十数分ぶん古いコードが
+  返って原因の切り分けができなくなるため
+
 ## テスト
 
 iTunes Search API と RSS をモックし、音声だけは Range 対応のローカルサーバーから実際に再生させて、

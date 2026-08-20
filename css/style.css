@@ -204,6 +204,17 @@ button, input { font: inherit; color: inherit; }
 .btn:disabled { background: var(--surface-2); color: var(--text-dim); }
 
 .placeholder { padding: 32px 16px; color: var(--text-dim); text-align: center; }
+.version {
+  display: block;
+  width: 100%;
+  padding: 20px 16px;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+}
 .empty { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 56px 16px; color: var(--text-dim); }
 
 /* ---- ミニプレイヤー ---- */
