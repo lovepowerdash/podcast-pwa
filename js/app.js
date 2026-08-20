@@ -3,9 +3,9 @@
 // ---------------------------------------------------------------------------
 import { searchPodcasts, fetchFeed, revalidateFeed } from './api.js';
 import {
-  listFollows, getFollow, addFollow, removeFollow, putFollow,
+  listFollows, getFollow, addFollow, removeFollow,
   setSortOrder, setHideRead, setArtwork, episodeStateMap, setEpisodesRead,
-  putEpisodeStates, newEpisodeState,
+  putEpisodeStates, newEpisodeState, getFeedCache, setFollowTitle,
 } from './db.js';
 import * as player from './player.js';
 import { APP_VERSION } from './config.js';
@@ -301,9 +301,7 @@ function renderEpisodes() {
           </span>
         </button>
         <button class="ep__menu" type="button" data-menu="${escapeHtml(ep.episodeId)}"
-                aria-label="この回の操作メニュー">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
-        </button>
+                aria-label="この回の操作メニュー"><i></i></button>
       </div>`;
   }).join('');
 }
@@ -319,10 +317,26 @@ async function openShow(feedUrl, { force = false } = {}) {
   $('show-title').textContent = follow.title;
   renderSortToggle();
   renderFilterToggle();
+
+  // 手持ちがあるなら読み込み表示を挟まずに一度で描く。
+  // 差し込みが二段階になると、組み立ての過程が見えてしまうため。
+  if (!force) {
+    const [cache, states] = await Promise.all([getFeedCache(feedUrl), episodeStateMap(feedUrl)]);
+    if (show.feedUrl !== feedUrl) return;
+    if (cache) {
+      show.episodes = cache.rawEpisodes;
+      show.states = states;
+      renderEpisodes();
+      // 表示したあとで、裏で更新の有無だけ確かめる
+      checkForNewEpisodes(feedUrl, follow);
+      return;
+    }
+  }
+
   $('episode-list').innerHTML = spinner('エピソードを取得中…');
 
   try {
-    const [{ feedTitle, episodes, cached }, states] = await Promise.all([
+    const [{ feedTitle, episodes }, states] = await Promise.all([
       fetchFeed(feedUrl, { force }),
       episodeStateMap(feedUrl),
     ]);
@@ -331,10 +345,6 @@ async function openShow(feedUrl, { force = false } = {}) {
     show.states = states;
     await applyFeedTitle(follow, feedTitle);
     renderEpisodes();
-
-    // キャッシュから表示した場合は、裏で更新の有無だけ確かめる。
-    // 変わっていなければ配信元は本文を返さないので、開くたびに呼んでも負担にならない。
-    if (cached && !force) checkForNewEpisodes(feedUrl, follow);
   } catch (err) {
     $('episode-list').innerHTML = `
       <div class="empty">
@@ -345,11 +355,15 @@ async function openShow(feedUrl, { force = false } = {}) {
   }
 }
 
-/** 番組名は表示用のキャッシュなので、フィードの内容で追従させる */
+/**
+ * 番組名は表示用のキャッシュなので、フィードの内容で追従させる。
+ * 開いた時点の情報をそのまま書き戻すと、その後に変えた並び順やフィルタを
+ * 巻き戻してしまうため、名前だけを書き換える。
+ */
 async function applyFeedTitle(follow, feedTitle) {
   if (!feedTitle || feedTitle === follow.title) return;
   follow.title = feedTitle;
-  await putFollow(follow);
+  await setFollowTitle(follow.feedUrl, feedTitle);
   show.title = feedTitle;
   $('show-title').textContent = feedTitle;
 }

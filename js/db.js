@@ -94,6 +94,10 @@ export async function setArtwork(feedUrl, artworkUrl) {
   await patchFollow(feedUrl, { artworkUrl });
 }
 
+export async function setFollowTitle(feedUrl, title) {
+  await patchFollow(feedUrl, { title });
+}
+
 async function patchFollow(feedUrl, patch) {
   const follow = await getFollow(feedUrl);
   if (!follow) return;

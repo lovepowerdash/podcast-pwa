@@ -202,6 +202,9 @@ body.is-playing .scroll { padding-bottom: calc(var(--mini-h) + var(--safe-bottom
   display: flex;
   align-items: flex-start;
   border-bottom: 1px solid var(--line);
+  /* 数百件を一度に並べるため、画面外の行は組版と描画を省く */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 84px;
 }
 .ep.is-playing { background: var(--surface); }
 .ep__play {
@@ -229,7 +232,15 @@ body.is-playing .scroll { padding-bottom: calc(var(--mini-h) + var(--safe-bottom
   cursor: pointer;
 }
 .ep__menu:active { background: var(--surface-2); color: var(--accent); }
-.ep__menu svg { width: 20px; height: 20px; }
+/* 縦三点はCSSで描く。行ごとにSVGを置くと要素数が跳ね上がるため */
+.ep__menu i {
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 -6px currentColor, 0 6px currentColor;
+}
 
 /* ---- 操作メニュー（下から出るシート） ---- */
 .sheet { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; justify-content: flex-end; }
