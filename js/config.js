@@ -9,8 +9,10 @@
 // 安定して使いたい場合は自前のCloudflare Workerを立てて FEED_SOURCES の先頭に置くこと
 // （worker/cors-proxy.js とREADMEの手順を参照）。
 export const FEED_SOURCES = [
-  // 自前プロキシを立てたら、この行のコメントを外してURLを差し替える（最優先で使われる）
-  // { name: 'my-worker', build: (url) => `https://<自分のworker>.workers.dev/?url=${encodeURIComponent(url)}` },
+  // 自前のCloudflare Worker。サイズ上限もレート制限も無いのでこれが本命。
+  // 端末ごとの設定ではなくここに書いてあるので、アプリを開いた全員がそのまま使える。
+  // 引っ越す場合はこの1行を書き換える（worker/cors-proxy.js を参照）。
+  { name: 'worker', build: (url) => `https://podcast-proxy.lovepowerdash.workers.dev/?url=${encodeURIComponent(url)}` },
 
   // 配信元がCORSを許可しているフィードはプロキシ不要。まずそのまま試す（失敗しても数百msで次へ進む）
   { name: '直接取得', build: (url) => url },

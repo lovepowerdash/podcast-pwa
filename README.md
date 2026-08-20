@@ -45,7 +45,8 @@ npm start   # http://localhost:8080 で配信
   「直接取得」＋公開 CORS プロキシ 3 種。動かなくなったらここを書き換える
 - `FEED_FETCH_TIMEOUT_MS` — 1 経路あたりの上限時間（既定 40 秒）。同時に投げるのでこれが最大待ち時間になる
 - `FEED_CACHE_TTL_SEC` — フィードキャッシュの有効期限（既定 900 秒 = 15 分）
-- ホーム画面左上の歯車から自前プロキシの URL を入れると、ソースを書き換えずに最優先で使える
+- ホーム画面左上の歯車から自前プロキシの URL を入れると、その端末だけ最優先で使える
+  （動作確認用の逃げ道。恒久的な設定は `FEED_SOURCES` 側で行う）
 - `SEEK_SECONDS`、`PLAYBACK_RATES`、`READ_RATIO`（既読とみなす再生割合）
 
 iTunes Search API は CORS 許可済みのためプロキシを通さず直接 fetch している。
@@ -80,14 +81,15 @@ RSS が数 MB になるため、`413 Payload Too Large` やタイムアウトで
    ルートディレクトリに `worker` を指定する。`worker/wrangler.toml` を読んで自動でデプロイされ、
    以後は push するだけで更新される。
 3. 発行された `https://<名前>.<アカウント>.workers.dev` を控える
-4. アプリのホーム画面左上の歯車から `https://<名前>.workers.dev/?url=` を貼り付ける
-   （端末の localStorage に保存され、`FEED_SOURCES` より優先される。再デプロイ不要）
-
-恒久的に既定へ組み込むなら、`js/config.js` の `FEED_SOURCES` 先頭にあるコメント行を有効にする。
+4. `js/config.js` の `FEED_SOURCES` 先頭にある `worker` の URL を自分のものに書き換える
+   （ここに書けば全端末・全利用者に効く。既定では `podcast-proxy.lovepowerdash.workers.dev`）
 
 ```js
-{ name: 'my-worker', build: (url) => `https://<名前>.workers.dev/?url=${encodeURIComponent(url)}` },
+{ name: 'worker', build: (url) => `https://<名前>.workers.dev/?url=${encodeURIComponent(url)}` },
 ```
+
+再デプロイせずにその端末だけで試したい場合は、アプリのホーム画面左上の歯車から
+`https://<名前>.workers.dev/?url=` を入力する（localStorage に保存され `FEED_SOURCES` より優先される）。
 
 `worker/cors-proxy.js` の `ALLOWED_ORIGINS` に自分の公開 URL を書いておくこと（第三者に
 踏み台として使われないため）。レスポンスはストリームのまま中継するのでフィードのサイズ制限はない。

@@ -59,6 +59,7 @@ await page.route('https://itunes.apple.com/search*', (route) => route.fulfill({
   body: JSON.stringify({ resultCount: 1, results: [{ collectionName: 'テスト番組', artistName: 'テスト作者', feedUrl: 'https://feed.test/rss.xml', trackCount: 3 }] }),
 }));
 // 全経路を同時に投げるので、モックしないプロキシは実ネットワークに出る前に失敗させる
+await page.route('**podcast-proxy.lovepowerdash.workers.dev**', (route) => route.abort('failed'));
 await page.route('**api.codetabs.com**', (route) => route.abort('failed'));
 await page.route('**corsproxy.io**', (route) => route.abort('failed'));
 // 配信元が直接fetchを許可していない状況（大半のRSS）を再現する
