@@ -23,6 +23,16 @@ GitHub Pages などの無料枠にそのまま置いて iPhone のホーム画�
 ミニプレイヤーは全画面共通で下部固定 → タップでフルプレイヤー
 ```
 
+## 現在の稼働構成
+
+- 公開 URL: https://lovepowerdash.github.io/podcast-pwa/ （GitHub Pages / `main` の root）
+- フィード取得: `https://podcast-proxy.lovepowerdash.workers.dev`（Cloudflare Workers 無料枠）
+  - デプロイ済みのコードは README 下部の**短縮版**（スマホから手で貼り付けたもの）。
+    リポジトリの `worker/cors-proxy.js` は同じ動作のフル版で、まだ Worker には反映していない。
+    Cloudflare の Connect GitHub で `worker` ディレクトリを繋げば、以後は push だけで同期される
+- iPhone 実機で確認済み: フィード取得 / 並び替え / 再生 / 既読・再生位置の保存 /
+  バックグラウンド再生 / ロック画面操作 / ホーム画面に追加しての standalone 起動
+
 ## デプロイ（GitHub Pages）
 
 ビルド不要。リポジトリ直下がそのまま公開ディレクトリになる。
