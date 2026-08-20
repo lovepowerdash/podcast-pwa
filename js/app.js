@@ -85,6 +85,43 @@ function isStandalone() {
   return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 }
 
+// Android の Chrome などは、インストール可能になるとこのイベントを投げてくる。
+// 受け取っておけば、案内文の代わりにボタン1つで追加してもらえる。
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  installPrompt = event;
+  if (!$('screen-home').hidden) renderHome();
+});
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  if (!$('screen-home').hidden) renderHome();
+});
+
+/** ホーム画面への追加を促す案内。追加方法は環境で違うので出し分ける */
+function installTip() {
+  if (isStandalone()) return '';
+
+  if (installPrompt) {
+    return `
+      <div class="tip">
+        <p class="tip__lead">ホーム画面に追加すると便利です</p>
+        <p>アドレスバーの無い状態で起動でき、アプリのように扱えます。ロック画面からの操作もそのまま使えます。</p>
+        <button class="btn tip__install" type="button" id="install">ホーム画面に追加</button>
+      </div>`;
+  }
+
+  const android = /android/i.test(navigator.userAgent);
+  const how = android
+    ? 'ブラウザのメニュー（右上の ⋮ ）から「アプリをインストール」または「ホーム画面に追加」を選ぶと、'
+    : 'Safariの共有ボタン<svg class="tip__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><polyline points="8 7 12 3 16 7"/><path d="M6 12v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7"/></svg>から「ホーム画面に追加」を選ぶと、';
+  return `
+      <div class="tip">
+        <p class="tip__lead">ホーム画面に追加すると便利です</p>
+        <p>${how}アドレスバーの無い状態で起動でき、アプリのように扱えます。ロック画面からの操作もそのまま使えます。</p>
+      </div>`;
+}
+
 async function renderHome() {
   const list = $('home-list');
   const follows = await listFollows();
@@ -94,17 +131,11 @@ async function renderHome() {
 
   if (follows.length === 0) {
     // まだ何も無く、かつブラウザのタブで開かれているときだけ、追加の案内を出す
-    const tip = isStandalone() ? '' : `
-      <div class="tip">
-        <p class="tip__lead">ホーム画面に追加すると便利です</p>
-        <p>Safariの共有ボタン<svg class="tip__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><polyline points="8 7 12 3 16 7"/><path d="M6 12v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7"/></svg>から「ホーム画面に追加」を選ぶと、
-        アドレスバーの無い状態で起動でき、アプリのように扱えます。ロック画面からの操作もそのまま使えます。</p>
-      </div>`;
     list.innerHTML = `
       <div class="empty">
         <p>フォロー中の番組はまだありません。</p>
         <a class="btn" href="#/search">番組を検索する</a>
-      </div>${tip}${footer}`;
+      </div>${installTip()}${footer}`;
     return;
   }
 
@@ -145,6 +176,13 @@ async function backfillArtwork(follows) {
 }
 
 $('home-list').addEventListener('click', async (event) => {
+  if (event.target.closest('#install') && installPrompt) {
+    const prompt = installPrompt;
+    installPrompt = null;
+    prompt.prompt();
+    return;
+  }
+
   // 実機で何が起きたかを確認するための記録（開発者コンソールが使えないため）
   if (event.target.closest('#version')) {
     alert(`版: ${APP_VERSION}\n\n再生まわりの記録:\n${player.diagnostics()}`);

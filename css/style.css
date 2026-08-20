@@ -279,6 +279,7 @@ button, input { font: inherit; color: inherit; }
 }
 .tip__lead { margin: 0 0 8px; font-size: 14px; font-weight: 700; color: var(--accent); }
 .tip p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text-dim); }
+.tip__install { margin-top: 14px; }
 .tip__icon {
   width: 15px;
   height: 15px;

@@ -1,6 +1,7 @@
 # podflow
 
-個人利用向けのポッドキャスト再生 PWA。ビルド不要の静的サイト（素の HTML / CSS / ES Modules）で、
+個人利用向けのポッドキャスト再生 PWA。iPhone での利用を前提に作っているが、
+ホーム画面への追加の案内など、環境で違う部分は Android でも成り立つようにしてある。ビルド不要の静的サイト（素の HTML / CSS / ES Modules）で、
 Cloudflare Pages の無料枠にそのまま置いて iPhone のホーム画面から使うことを想定している。
 
 ## 実装済みの要件

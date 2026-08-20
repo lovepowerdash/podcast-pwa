@@ -85,6 +85,18 @@ check('ホームの空状態', (await page.textContent('#home-list')).includes('
 check('ブラウザで開いた空状態では追加の案内を出す',
   (await page.textContent('#home-list')).includes('ホーム画面に追加すると便利です'));
 
+// Android などインストール可能な環境では、案内の代わりにボタンを出す
+await page.evaluate(() => {
+  const event = new Event('beforeinstallprompt');
+  event.prompt = () => { window.__installPrompted = true; };
+  window.dispatchEvent(event);
+});
+await page.waitForSelector('#install');
+check('インストール可能ならボタンを出す', await page.isVisible('#install'));
+await page.click('#install');
+check('ボタンから追加の確認を呼び出す', await page.evaluate(() => window.__installPrompted === true));
+await page.reload({ waitUntil: 'networkidle' });
+
 // ホーム画面から起動している場合は案内を出さない（iOSは navigator.standalone で判定する）
 await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
 await page.reload({ waitUntil: 'networkidle' });
