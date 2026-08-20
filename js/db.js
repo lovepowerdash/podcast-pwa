@@ -62,11 +62,13 @@ export function putFollow(follow) {
   return tx('follows', 'readwrite', (s) => s.put(follow));
 }
 
-export async function addFollow({ feedUrl, title }) {
+export async function addFollow({ feedUrl, title, artworkUrl = '' }) {
   const existing = await getFollow(feedUrl);
   if (existing) return existing;
   // 「フォロー」はRSSの仕様には存在しない、このアプリのローカル管理でしかない
-  const follow = { feedUrl, title, sortOrder: 'desc', hideRead: false, followedAt: Date.now() };
+  const follow = {
+    feedUrl, title, artworkUrl, sortOrder: 'desc', hideRead: false, followedAt: Date.now(),
+  };
   await putFollow(follow);
   return follow;
 }
@@ -86,6 +88,10 @@ export async function setSortOrder(feedUrl, sortOrder) {
 
 export async function setHideRead(feedUrl, hideRead) {
   await patchFollow(feedUrl, { hideRead });
+}
+
+export async function setArtwork(feedUrl, artworkUrl) {
+  await patchFollow(feedUrl, { artworkUrl });
 }
 
 async function patchFollow(feedUrl, patch) {

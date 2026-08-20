@@ -126,6 +126,15 @@ button, input { font: inherit; color: inherit; }
   padding: 4px 8px 4px 16px;
   border-bottom: 1px solid var(--line);
 }
+.row__art {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  margin-right: 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  object-fit: cover;
+}
 .row__main {
   flex: 1;
   min-width: 0;

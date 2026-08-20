@@ -56,8 +56,10 @@ page.on('pageerror', (e) => fail.push(`pageerror: ${e.message}`));
 
 await page.route('https://itunes.apple.com/search*', (route) => route.fulfill({
   status: 200, contentType: 'application/json',
-  body: JSON.stringify({ resultCount: 1, results: [{ collectionName: 'テスト番組', artistName: 'テスト作者', feedUrl: 'https://feed.test/rss.xml', trackCount: 3 }] }),
+  body: JSON.stringify({ resultCount: 1, results: [{ collectionName: 'テスト番組', artistName: 'テスト作者', feedUrl: 'https://feed.test/rss.xml', trackCount: 3, artworkUrl100: 'https://art.test/a/100x100bb.jpg' }] }),
 }));
+// 番組画像。読めないと onerror で src が外れるので、テストでも実体を返す
+await page.route('https://art.test/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: readFileSync(`${ROOT}/icons/icon-192.png`) }));
 // 同一オリジンの中継は Pages Functions 側の処理で、この静的サーバーには無い。
 // 既定では失敗させ、公開プロキシへのフォールバックを検証する（専用の検証は後段にある）
 await page.route('**/api/feed*', (route) => route.abort('failed'));
@@ -262,8 +264,31 @@ await page.click('#episode-retry');
 await page.waitForSelector('[data-episode]', { timeout: 10000 });
 check('自前プロキシの設定が最優先で使われる', (await page.locator('[data-episode]').count()) === 3);
 
-// --- 版の表示と診断記録
+// --- フォロー中一覧の番組画像
 await page.click('a[href="#/"]');
+await page.waitForSelector('.row__art');
+check('フォロー中一覧に番組画像が出る',
+  (await page.getAttribute('.row__art', 'src')) === 'https://art.test/a/200x200bb.jpg',
+  await page.getAttribute('.row__art', 'src'));
+
+// 画像URLを持たない古いフォローを、番組名からの再検索で補完する
+await page.evaluate(() => new Promise((resolve) => {
+  const req = indexedDB.open('podcast_pwa_db');
+  req.onsuccess = () => {
+    const store = req.result.transaction('follows', 'readwrite').objectStore('follows');
+    const get = store.get('https://feed.test/rss.xml');
+    get.onsuccess = () => { store.put({ ...get.result, artworkUrl: '' }); resolve(); };
+  };
+}));
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => {
+  const img = document.querySelector('.row__art');
+  return img && img.getAttribute('src');
+}, null, { timeout: 8000 });
+check('画像URLが無いフォローは後から補完される',
+  (await page.getAttribute('.row__art', 'src')) === 'https://art.test/a/200x200bb.jpg');
+
+// --- 版の表示と診断記録
 await page.waitForSelector('#version');
 check('ホームに版が表示される', /\d{4}-\d{2}-\d{2}/.test(await page.textContent('#version')), await page.textContent('#version'));
 page.once('dialog', (d) => d.dismiss());

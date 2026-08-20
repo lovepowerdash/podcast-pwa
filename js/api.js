@@ -23,7 +23,16 @@ export async function searchPodcasts(term) {
       title: r.collectionName || r.trackName || '(タイトル不明)',
       author: r.artistName || '',
       trackCount: r.trackCount || 0,
+      artworkUrl: artworkAt(r.artworkUrl100 || r.artworkUrl60 || '', 200),
     }));
+}
+
+/**
+ * iTunesのアートワークURLは末尾で寸法を指定できる（例: .../100x100bb.jpg）。
+ * 一覧の表示サイズに合わせて差し替える。想定と違う形式ならそのまま使う。
+ */
+function artworkAt(url, size) {
+  return url ? url.replace(/\/\d+x\d+bb\.(jpg|png)$/, `/${size}x${size}bb.$1`) : '';
 }
 
 /** FNV-1a 32bit。<guid> を持たないフィードのフォールバック用 */

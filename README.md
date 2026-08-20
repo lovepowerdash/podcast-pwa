@@ -78,7 +78,7 @@ iTunes Search API は CORS 許可済みのためプロキシを通さず直接 f
 
 | ストア | keyPath | 用途 |
 |---|---|---|
-| `follows` | `feedUrl` | フォロー中の番組。`title` / `sortOrder` / `hideRead` / `followedAt` |
+| `follows` | `feedUrl` | フォロー中の番組。`title` / `artworkUrl` / `sortOrder` / `hideRead` / `followedAt` |
 | `episodes` | `episodeId` | 既読・再生位置。`feedUrl` に**インデックス**を張り番組単位で取得 |
 | `feedCache` | `feedUrl` | RSS パース結果と `cachedAt` / `ttl` |
 

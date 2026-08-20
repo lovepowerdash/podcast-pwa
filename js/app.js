@@ -4,7 +4,8 @@
 import { searchPodcasts, fetchFeed } from './api.js';
 import {
   listFollows, getFollow, addFollow, removeFollow, putFollow,
-  setSortOrder, setHideRead, episodeStateMap, setEpisodesRead, putEpisodeStates, newEpisodeState,
+  setSortOrder, setHideRead, setArtwork, episodeStateMap, setEpisodesRead,
+  putEpisodeStates, newEpisodeState,
 } from './db.js';
 import * as player from './player.js';
 import { CUSTOM_PROXY_KEY, APP_VERSION } from './config.js';
@@ -81,12 +82,38 @@ async function renderHome() {
 
   list.innerHTML = follows.map((f) => `
     <div class="row">
+      <img class="row__art" src="${escapeHtml(f.artworkUrl || '')}" alt="" loading="lazy"
+           onerror="this.removeAttribute('src')">
       <a class="row__main" href="#/show/${encodeURIComponent(f.feedUrl)}">
         <span class="row__title">${escapeHtml(f.title)}</span>
         <span class="row__meta">${f.sortOrder === 'asc' ? '古い順' : '新しい順'}で表示</span>
       </a>
       <button class="row__remove" type="button" data-unfollow="${escapeHtml(f.feedUrl)}" aria-label="フォローを解除">✕</button>
     </div>`).join('') + footer;
+
+  backfillArtwork(follows);
+}
+
+// アートワークURLを持っていないフォロー（この機能より前に追加したもの）を後から補う。
+// フィード本体は数MBあるので取りに行かず、軽いiTunes Search APIで番組名から引き当てる。
+const artworkTried = new Set();
+
+async function backfillArtwork(follows) {
+  const missing = follows.filter((f) => !f.artworkUrl && !artworkTried.has(f.feedUrl));
+  if (missing.length === 0) return;
+
+  let found = false;
+  for (const follow of missing) {
+    artworkTried.add(follow.feedUrl);
+    try {
+      const results = await searchPodcasts(follow.title);
+      const match = results.find((r) => r.feedUrl === follow.feedUrl);
+      if (!match?.artworkUrl) continue;
+      await setArtwork(follow.feedUrl, match.artworkUrl);
+      found = true;
+    } catch { /* 取れなければ画像なしのまま表示する */ }
+  }
+  if (found && !$('screen-home').hidden) renderHome();
 }
 
 // 公開プロキシが使えない番組向けに、自前プロキシのURLを端末側で差し替えられるようにする。
@@ -383,7 +410,7 @@ $('search-list').addEventListener('click', async (event) => {
   if (!button) return;
   const feedUrl = button.dataset.follow;
   const result = searchResults.find((r) => r.feedUrl === feedUrl);
-  await addFollow({ feedUrl, title: result?.title || feedUrl });
+  await addFollow({ feedUrl, title: result?.title || feedUrl, artworkUrl: result?.artworkUrl || '' });
   // フォロー後はそのままエピソード一覧へ移動する（設計書 8. の未確定事項をここで確定）
   location.hash = `#/show/${encodeURIComponent(feedUrl)}`;
 });
