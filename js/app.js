@@ -140,9 +140,21 @@ function installTip() {
       </div>`;
 }
 
+// 同じ内容で描き直すと画像の要素が作り直され、読み込みし直しでちらつく。
+// 前回描いた内容と同じなら何もしない。
+let homeSignature = null;
+
 async function renderHome() {
   const list = $('home-list');
   const follows = await listFollows();
+
+  const signature = JSON.stringify([
+    follows.map((f) => [f.feedUrl, f.title, f.artworkUrl, f.sortOrder]),
+    isStandalone(),
+    Boolean(installPrompt),
+  ]);
+  if (signature === homeSignature) return;
+  homeSignature = signature;
 
   // 端末に届いている版を確認できるようにしておく（タップで再生まわりの記録を表示）
   const footer = `<button class="version" type="button" id="version">${escapeHtml(APP_VERSION)}</button>`;

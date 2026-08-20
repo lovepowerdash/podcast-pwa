@@ -3,6 +3,8 @@
 // エピソードのダウンロード/オフライン再生は非要件のため、音声とフィードは一切キャッシュしない。
 // ---------------------------------------------------------------------------
 const CACHE = 'podcast-pwa-v6';
+// 番組画像はURLごとに内容が変わらないので、別枠で溜めておく
+const ART_CACHE = 'podcast-pwa-art-v1';
 
 const APP_SHELL = [
   '/',
@@ -31,7 +33,9 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(
+        keys.filter((k) => k !== CACHE && k !== ART_CACHE).map((k) => caches.delete(k)),
+      ))
       .then(() => self.clients.claim()),
   );
 });
@@ -41,6 +45,19 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+
+  // 番組画像は一度取れば変わらない。溜めておいて即座に返す（一覧のちらつき防止）
+  if (request.destination === 'image' && url.origin !== self.location.origin) {
+    event.respondWith(
+      caches.open(ART_CACHE).then((cache) => cache.match(request).then((hit) => hit || fetch(request)
+        .then((response) => {
+          if (response.ok || response.type === 'opaque') cache.put(request, response.clone());
+          return response;
+        }))),
+    );
+    return;
+  }
+
   // 音声ファイル・iTunes Search API は常にネットワークへ通す
   if (url.origin !== self.location.origin) return;
   // フィードの中継も同一オリジンだが、内容はアプリ側でキャッシュ管理するので触らない

@@ -315,6 +315,15 @@ check('フォロー中一覧に番組画像が出る',
   (await page.getAttribute('.row__art', 'src')) === 'https://art.test/a/200x200bb.jpg',
   await page.getAttribute('.row__art', 'src'));
 
+// 同じ内容なら描き直さない（画像が読み込み直されてちらつくため）
+await page.evaluate(() => { document.querySelector('.row__art').dataset.kept = '1'; });
+await page.click('a[href="/search"]');
+await page.waitForSelector('#screen-search:not([hidden])');
+await page.goBack();
+await page.waitForSelector('#screen-home:not([hidden])');
+check('内容が同じなら一覧を描き直さない',
+  await page.evaluate(() => document.querySelector('.row__art')?.dataset.kept === '1'));
+
 // 画像URLを持たない古いフォローを、番組名からの再検索で補完する
 await page.evaluate(() => new Promise((resolve) => {
   const req = indexedDB.open('podcast_pwa_db');
