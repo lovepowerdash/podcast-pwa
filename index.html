@@ -117,6 +117,16 @@
   </div>
 </section>
 
+<!-- エピソードごとの操作メニュー -->
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet__backdrop" data-close-sheet></div>
+  <div class="sheet__panel" role="dialog" aria-label="エピソードの操作">
+    <p class="sheet__title" id="sheet-title"></p>
+    <button class="sheet__item" type="button" id="sheet-mark">ここまで再生済みにする</button>
+    <button class="sheet__item sheet__item--cancel" type="button" data-close-sheet>キャンセル</button>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <audio id="audio" preload="metadata" playsinline></audio>

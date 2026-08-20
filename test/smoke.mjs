@@ -82,6 +82,9 @@ await page.fill('#search-input', 'テスト');
 await page.click('.searchbar__btn');
 await page.waitForSelector('[data-follow]');
 check('iTunes検索結果の表示', (await page.textContent('#search-list')).includes('テスト番組'));
+check('検索結果にも番組画像が出る',
+  (await page.getAttribute('#search-list .row__art', 'src')) === 'https://art.test/a/200x200bb.jpg',
+  await page.getAttribute('#search-list .row__art', 'src'));
 await page.click('[data-follow]');
 
 // --- エピソード一覧
@@ -179,9 +182,13 @@ check('endedが発火しなくても終端で停止したら次へ送る', (awai
 // --- 最初の回からこの回までをまとめて再生済みにする
 await page.click('#filter-toggle'); // いったん未再生のみにして対象件数を確かめやすくする
 await page.click('#filter-toggle');
+await page.click('[data-menu] >> nth=2'); // 昇順の3件目 = 第3回まで
+await page.waitForSelector('#sheet:not([hidden])');
+check('操作メニューに対象の回が出る', (await page.textContent('#sheet-title')).includes('第3回'));
 page.once('dialog', (d) => d.accept());
-await page.click('[data-mark] >> nth=2'); // 昇順の3件目 = 第3回まで
+await page.click('#sheet-mark');
 await page.waitForTimeout(400);
+check('選ぶとメニューが閉じる', await page.isHidden('#sheet'));
 const marked = await page.evaluate(() => new Promise((resolve) => {
   const req = indexedDB.open('podcast_pwa_db');
   req.onsuccess = () => {
@@ -208,8 +215,10 @@ check('戻す対象が無ければ何もしない', await (async () => {
   return (await page.textContent('#toast')).includes('戻す回はありません');
 })());
 // 以降のフィルタ検証のために、第1回と第2回を再生済みへ戻す
+await page.click('[data-menu] >> nth=1');
+await page.waitForSelector('#sheet:not([hidden])');
 page.once('dialog', (d) => d.accept());
-await page.click('[data-mark] >> nth=1');
+await page.click('#sheet-mark');
 await page.waitForTimeout(400);
 
 // --- 再生済みを隠すフィルタ

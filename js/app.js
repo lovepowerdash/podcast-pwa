@@ -222,9 +222,9 @@ function renderEpisodes() {
               ? `<span class="ep__bar"><i style="width:${(progress * 100).toFixed(1)}%"></i></span>` : ''}
           </span>
         </button>
-        <button class="ep__mark" type="button" data-mark="${escapeHtml(ep.episodeId)}"
-                aria-label="最初の回からこの回までを再生済みにする">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="2 13 6 17 13 8"/><polyline points="10 13 14 17 22 7"/></svg>
+        <button class="ep__menu" type="button" data-menu="${escapeHtml(ep.episodeId)}"
+                aria-label="この回の操作メニュー">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
         </button>
       </div>`;
   }).join('');
@@ -292,6 +292,30 @@ $('show-refresh').addEventListener('click', () => {
   if (show.feedUrl) openShow(show.feedUrl, { force: true });
 });
 
+// エピソードごとの操作メニュー。いまは項目が1つだが、増やす余地を持たせている。
+let menuEpisode = null;
+
+function openEpisodeMenu(episode) {
+  menuEpisode = episode;
+  $('sheet-title').textContent = episode.title;
+  $('sheet').hidden = false;
+}
+
+function closeEpisodeMenu() {
+  $('sheet').hidden = true;
+  menuEpisode = null;
+}
+
+$('sheet').addEventListener('click', (event) => {
+  if (event.target.closest('[data-close-sheet]')) closeEpisodeMenu();
+});
+
+$('sheet-mark').addEventListener('click', () => {
+  const episode = menuEpisode;
+  closeEpisodeMenu();
+  if (episode) markThrough(episode);
+});
+
 /** 取り消しで元通りにできるよう、変更前の状態を控えておく */
 function snapshotStates(episodes) {
   return episodes.map((ep) => show.states.get(ep.episodeId) || newEpisodeState(ep));
@@ -350,10 +374,10 @@ $('show-reset').addEventListener('click', () => { if (show.feedUrl) resetShow();
 // iOS ではユーザー操作のイベントハンドラ内で同期的に play() を呼ぶ必要があるため、
 // 再生位置は描画時に読み込んだ show.states から同期的に取り出す（await を挟まない）
 $('episode-list').addEventListener('click', (event) => {
-  const mark = event.target.closest('[data-mark]');
-  if (mark) {
-    const target = show.episodes.find((ep) => ep.episodeId === mark.dataset.mark);
-    if (target) markThrough(target);
+  const menu = event.target.closest('[data-menu]');
+  if (menu) {
+    const target = show.episodes.find((ep) => ep.episodeId === menu.dataset.menu);
+    if (target) openEpisodeMenu(target);
     return;
   }
 
@@ -394,6 +418,8 @@ async function renderSearchResults() {
   const followed = new Set((await listFollows()).map((f) => f.feedUrl));
   list.innerHTML = searchResults.map((r) => `
     <div class="row">
+      <img class="row__art" src="${escapeHtml(r.artworkUrl || '')}" alt="" loading="lazy"
+           onerror="this.removeAttribute('src')">
       <span class="row__main">
         <span class="row__title">${escapeHtml(r.title)}</span>
         <span class="row__meta">${escapeHtml(r.author)}${r.trackCount ? ` ・ ${r.trackCount}本` : ''}</span>
