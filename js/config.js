@@ -20,8 +20,10 @@ export const FEED_SOURCES = [
   { name: 'corsproxy.io', build: (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}` },
 ];
 
-// 応答の無いプロキシで待たされ続けないよう、1経路あたりの上限時間を決めておく
-export const FEED_FETCH_TIMEOUT_MS = 15000;
+// 応答の無いプロキシで待たされ続けないよう、1経路あたりの上限時間を決めておく。
+// 全経路を同時に投げるので、これがそのまま最大待ち時間になる。
+// 数MBのフィードをモバイル回線で受け切るには短すぎないほうがよい。
+export const FEED_FETCH_TIMEOUT_MS = 40000;
 
 // ソースを書き換えずに端末側でプロキシを差し替えるための保存キー。
 // ホーム画面の歯車から入力でき、設定されていれば FEED_SOURCES より優先される。

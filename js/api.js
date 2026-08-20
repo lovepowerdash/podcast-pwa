@@ -106,24 +106,36 @@ async function fetchWithTimeout(url) {
   }
 }
 
-async function fetchFeedText(feedUrl) {
-  const errors = [];
-  const sources = [customFeedSource(), ...FEED_SOURCES].filter(Boolean);
-  for (const source of sources) {
-    try {
-      const res = await fetchWithTimeout(source.build(feedUrl));
-      // 413 はプロキシのサイズ上限。エピソード数の多い番組で起きるので理由を明示する
-      if (res.status === 413) throw new Error('フィードが大きすぎます (413)');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = await res.text();
-      if (!body.trim()) throw new Error('空のレスポンス');
-      if (!body.includes('<item')) throw new Error('RSSではない応答');
-      return body;
-    } catch (err) {
-      errors.push(`${source.name}: ${err.name === 'AbortError' ? 'タイムアウト' : err.message}`);
-    }
+async function fetchFromSource(source, feedUrl) {
+  const label = source.name;
+  let res;
+  try {
+    res = await fetchWithTimeout(source.build(feedUrl));
+  } catch (err) {
+    throw new Error(`${label}: ${err.name === 'AbortError' ? 'タイムアウト' : err.message}`);
   }
-  throw new Error(`フィードを取得できませんでした（${errors.join(' / ')}）`);
+  // 413 はプロキシのサイズ上限。エピソード数の多い番組で起きるので理由を明示する
+  if (res.status === 413) throw new Error(`${label}: フィードが大きすぎます (413)`);
+  if (!res.ok) throw new Error(`${label}: HTTP ${res.status}`);
+
+  const body = await res.text();
+  if (!body.trim()) throw new Error(`${label}: 空のレスポンス`);
+  if (!body.includes('<item')) throw new Error(`${label}: RSSではない応答`);
+  return body;
+}
+
+/**
+ * 全経路を同時に投げ、最初に成功したものを採用する。
+ * 数MBのフィードでは1経路あたり数十秒かかることがあり、直列に試すと待ち時間が積み上がるため。
+ */
+async function fetchFeedText(feedUrl) {
+  const sources = [customFeedSource(), ...FEED_SOURCES].filter(Boolean);
+  try {
+    return await Promise.any(sources.map((source) => fetchFromSource(source, feedUrl)));
+  } catch (aggregate) {
+    const errors = (aggregate.errors || [aggregate]).map((err) => err.message);
+    throw new Error(`フィードを取得できませんでした（${errors.join(' / ')}）`);
+  }
 }
 
 /**
