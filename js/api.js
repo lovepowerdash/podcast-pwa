@@ -197,6 +197,15 @@ export async function revalidateFeed(feedUrl) {
   return { changed: true, episodes, feedTitle };
 }
 
+/**
+ * 手持ちの中で一番新しい回の公開日。フィードがどこまで更新されているかの目安として使う。
+ * channel の lastBuildDate は取得のたびに現在時刻を返す配信元があり目安にならないため、
+ * 回そのものの公開日を見る。
+ */
+export function newestPubDate(episodes) {
+  return newestEpisode(episodes || [])?.pubDate || 0;
+}
+
 function newestEpisode(episodes) {
   return episodes.reduce((best, ep) => (!best || (ep.pubDate || 0) > (best.pubDate || 0) ? ep : best), null);
 }

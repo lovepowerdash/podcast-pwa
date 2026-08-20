@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // 画面遷移とレンダリング。4画面（ホーム / エピソード一覧 / 番組検索 / プレイヤー）
 // ---------------------------------------------------------------------------
-import { searchPodcasts, fetchFeed, revalidateFeed } from './api.js';
+import { searchPodcasts, fetchFeed, revalidateFeed, newestPubDate } from './api.js';
 import {
   listFollows, getFollow, addFollow, removeFollow,
   setSortOrder, setHideRead, setArtwork, episodeStateMap, setEpisodesRead,
-  putEpisodeStates, newEpisodeState, getFeedCache, setFollowTitle,
+  putEpisodeStates, newEpisodeState, getFeedCache, setFollowTitle, setLatestPubDate,
 } from './db.js';
 import * as player from './player.js';
 import { APP_VERSION } from './config.js';
@@ -147,6 +147,38 @@ function installTip() {
       </div>`;
 }
 
+/**
+ * 番組行に添える文。並び順と、フィードの更新日（一番新しい回の公開日）を並べる。
+ * 更新が新しいことを強調はしない。どの番組も同じ見た目で日付だけを置き、
+ * 目立たせるかどうかの判断は見る側に任せる。
+ */
+function followMeta(follow) {
+  // 「で表示」まで書くと幅320pxの端末で日付が2行目に落ちるため、順番の名前だけにする
+  const order = follow.sortOrder === 'asc' ? '古い順' : '新しい順';
+  const updated = follow.latestPubDate ? `更新 ${formatDate(follow.latestPubDate)}` : '';
+  return [order, updated].filter(Boolean).join(' ・ ');
+}
+
+// 更新日を持っていないフォロー（この機能より前に追加したもの）を後から補う。
+// 番組を開けばそのとき入るが、それまでの間も一覧に出せるよう手持ちのキャッシュから拾う。
+const latestPubDateTried = new Set();
+
+async function backfillLatestPubDate(follows) {
+  const missing = follows.filter((f) => !f.latestPubDate && !latestPubDateTried.has(f.feedUrl));
+  if (missing.length === 0) return;
+
+  let found = false;
+  for (const follow of missing) {
+    latestPubDateTried.add(follow.feedUrl);
+    const cache = await getFeedCache(follow.feedUrl);
+    const latest = newestPubDate(cache?.rawEpisodes);
+    if (!latest) continue; // まだ一度も開いていない番組。開いたときに入る
+    await setLatestPubDate(follow.feedUrl, latest);
+    found = true;
+  }
+  if (found && !$('screen-home').hidden) renderHome();
+}
+
 // 同じ内容で描き直すと画像の要素が作り直され、読み込みし直しでちらつく。
 // 前回描いた内容と同じなら何もしない。
 let homeSignature = null;
@@ -156,7 +188,7 @@ async function renderHome() {
   const follows = await listFollows();
 
   const signature = JSON.stringify([
-    follows.map((f) => [f.feedUrl, f.title, f.artworkUrl, f.sortOrder]),
+    follows.map((f) => [f.feedUrl, f.title, f.artworkUrl, f.sortOrder, f.latestPubDate]),
     isStandalone(),
     Boolean(installPrompt),
   ]);
@@ -186,13 +218,14 @@ async function renderHome() {
            onerror="this.removeAttribute('src')">
       <a class="row__main" href="/show?feed=${encodeURIComponent(f.feedUrl)}">
         <span class="row__title">${escapeHtml(f.title)}</span>
-        <span class="row__meta">${f.sortOrder === 'asc' ? '古い順' : '新しい順'}で表示</span>
+        <span class="row__meta">${escapeHtml(followMeta(f))}</span>
       </a>
       <button class="row__remove" type="button" data-unfollow="${escapeHtml(f.feedUrl)}" aria-label="フォローを解除">✕</button>
     </div>`).join('') + footer;
   showScreen('home');
 
   backfillArtwork(follows);
+  backfillLatestPubDate(follows);
 }
 
 // アートワークURLを持っていないフォロー（この機能より前に追加したもの）を後から補う。
@@ -337,6 +370,7 @@ async function openShow(feedUrl, { force = false } = {}) {
       show.states = states;
       renderEpisodes();
       showScreen('show');
+      rememberLatestPubDate(follow, cache.rawEpisodes);
       // 表示したあとで、裏で更新の有無だけ確かめる
       checkForNewEpisodes(feedUrl, follow);
       return;
@@ -355,6 +389,7 @@ async function openShow(feedUrl, { force = false } = {}) {
     show.episodes = episodes;
     show.states = states;
     await applyFeedTitle(follow, feedTitle);
+    await rememberLatestPubDate(follow, episodes);
     renderEpisodes();
   } catch (err) {
     $('episode-list').innerHTML = `
@@ -379,6 +414,19 @@ async function applyFeedTitle(follow, feedTitle) {
   $('show-title').textContent = feedTitle;
 }
 
+/**
+ * フィードの更新日を控えておく。ホームはネットワークに触らないので、
+ * 番組を開いて分かった日付を残しておかないと一覧に出せない。
+ */
+async function rememberLatestPubDate(follow, episodes) {
+  const latest = newestPubDate(episodes);
+  if (!latest || latest === follow.latestPubDate) return;
+  follow.latestPubDate = latest;
+  try {
+    await setLatestPubDate(follow.feedUrl, latest);
+  } catch { /* 書けなくても表示は続く。次に開いたときに書き直す */ }
+}
+
 /** 表示したあとに、フィードが新しくなっていれば一覧を差し替える */
 async function checkForNewEpisodes(feedUrl, follow) {
   let result;
@@ -393,6 +441,7 @@ async function checkForNewEpisodes(feedUrl, follow) {
   show.episodes = result.episodes;
   show.states = await episodeStateMap(feedUrl);
   await applyFeedTitle(follow, result.feedTitle);
+  await rememberLatestPubDate(follow, result.episodes);
   renderEpisodes();
   toast(added > 0 ? `新しいエピソードが ${added} 件あります` : 'エピソード一覧を更新しました');
 }

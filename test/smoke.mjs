@@ -344,6 +344,13 @@ check('フォロー中一覧に番組画像が出る',
   (await page.getAttribute('.row__art', 'src')) === 'http://127.0.0.1:8099/art/200x200bb.jpg',
   await page.getAttribute('.row__art', 'src'));
 
+// フィードの更新日（一番新しい回の公開日）。端末のタイムゾーンで表示されるので同じ規則で組む
+const newest = new Date('Mon, 19 Feb 2024 09:00:00 +0900');
+const newestLabel = `更新 ${newest.getFullYear()}/${newest.getMonth() + 1}/${newest.getDate()}`;
+check('フォロー中一覧にフィードの更新日が出る',
+  (await page.textContent('.row__meta')).includes(newestLabel),
+  `${await page.textContent('.row__meta')} / ${newestLabel}`);
+
 // 同じ内容なら描き直さない（画像が読み込み直されてちらつくため）
 await page.evaluate(() => { document.querySelector('.row__art').dataset.kept = '1'; });
 await page.click('a[href="/search"]');

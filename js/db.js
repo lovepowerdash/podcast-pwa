@@ -94,6 +94,11 @@ export async function setArtwork(feedUrl, artworkUrl) {
   await patchFollow(feedUrl, { artworkUrl });
 }
 
+/** 番組一覧に出す「フィードの更新日」。ホームはネットワークに触らないので控えておく */
+export async function setLatestPubDate(feedUrl, latestPubDate) {
+  await patchFollow(feedUrl, { latestPubDate });
+}
+
 export async function setFollowTitle(feedUrl, title) {
   await patchFollow(feedUrl, { title });
 }
