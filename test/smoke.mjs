@@ -15,6 +15,13 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 const server = createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]);
   if (p === '/') p = '/index.html';
+  if (p.startsWith('/art/')) {
+    // 番組画像。Service Worker 経由の取得も実際に通す必要があるため、実体を返す
+    const buf = readFileSync(`${ROOT}/icons/icon-192.png`);
+    res.writeHead(200, { 'content-type': 'image/png', 'content-length': buf.length });
+    res.end(buf);
+    return;
+  }
   if (p.startsWith('/__audio/')) {
     const buf = readFileSync(`${FX}/tone.wav`);
     const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
@@ -64,10 +71,8 @@ page.on('pageerror', (e) => fail.push(`pageerror: ${e.message}`));
 
 await page.route('https://itunes.apple.com/search*', (route) => route.fulfill({
   status: 200, contentType: 'application/json',
-  body: JSON.stringify({ resultCount: 1, results: [{ collectionName: 'テスト番組', artistName: 'テスト作者', feedUrl: 'https://feed.test/rss.xml', trackCount: 3, artworkUrl100: 'https://art.test/a/100x100bb.jpg' }] }),
+  body: JSON.stringify({ resultCount: 1, results: [{ collectionName: 'テスト番組', artistName: 'テスト作者', feedUrl: 'https://feed.test/rss.xml', trackCount: 3, artworkUrl100: 'http://127.0.0.1:8099/art/100x100bb.jpg' }] }),
 }));
-// 番組画像。読めないと onerror で src が外れるので、テストでも実体を返す
-await page.route('https://art.test/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: readFileSync(`${ROOT}/icons/icon-192.png`) }));
 // 同一オリジンの中継は Pages Functions 側の処理で、この静的サーバーには無い。
 // 既定では失敗させ、公開プロキシへのフォールバックを検証する（専用の検証は後段にある）
 await page.route('**/api/feed*', (route) => route.abort('failed'));
@@ -118,7 +123,7 @@ await page.click('.searchbar__btn');
 await page.waitForSelector('[data-follow]');
 check('iTunes検索結果の表示', (await page.textContent('#search-list')).includes('テスト番組'));
 check('検索結果にも番組画像が出る',
-  (await page.getAttribute('#search-list .row__art', 'src')) === 'https://art.test/a/200x200bb.jpg',
+  (await page.getAttribute('#search-list .row__art', 'src')) === 'http://127.0.0.1:8099/art/200x200bb.jpg',
   await page.getAttribute('#search-list .row__art', 'src'));
 await page.click('[data-follow]');
 
@@ -312,7 +317,7 @@ check('経路が復活すれば再試行で取得できる', (await page.locator
 await page.click('a[href="/"]');
 await page.waitForSelector('.row__art');
 check('フォロー中一覧に番組画像が出る',
-  (await page.getAttribute('.row__art', 'src')) === 'https://art.test/a/200x200bb.jpg',
+  (await page.getAttribute('.row__art', 'src')) === 'http://127.0.0.1:8099/art/200x200bb.jpg',
   await page.getAttribute('.row__art', 'src'));
 
 // 同じ内容なら描き直さない（画像が読み込み直されてちらつくため）
@@ -339,7 +344,7 @@ await page.waitForFunction(() => {
   return img && img.getAttribute('src');
 }, null, { timeout: 8000 });
 check('画像URLが無いフォローは後から補完される',
-  (await page.getAttribute('.row__art', 'src')) === 'https://art.test/a/200x200bb.jpg');
+  (await page.getAttribute('.row__art', 'src')) === 'http://127.0.0.1:8099/art/200x200bb.jpg');
 
 // --- 版の表示と診断記録
 await page.waitForSelector('#version');
