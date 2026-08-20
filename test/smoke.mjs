@@ -162,6 +162,15 @@ await page.waitForFunction(() => document.getElementById('mini-title').textConte
 check('終了後に次の回を自動再生する', (await page.textContent('#mini-title')).includes('第2回'), await page.textContent('#mini-title'));
 check('自動送り後も再生が続いている', await page.evaluate(() => !document.getElementById('audio').paused));
 
+// --- iOSでは末尾までシークすると ended が発火せず pause で終わることがある。その場合も送る
+await page.evaluate(() => {
+  const a = document.getElementById('audio');
+  a.currentTime = a.duration - 0.2;
+  a.pause();
+});
+await page.waitForFunction(() => document.getElementById('mini-title').textContent.includes('第3回'), null, { timeout: 8000 }).catch(() => {});
+check('endedが発火しなくても終端で停止したら次へ送る', (await page.textContent('#mini-title')).includes('第3回'), await page.textContent('#mini-title'));
+
 // --- 再生済みを隠すフィルタ
 check('フィルタの初期ラベル', (await page.textContent('#filter-label')) === 'すべて表示');
 await page.click('#filter-toggle');

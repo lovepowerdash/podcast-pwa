@@ -15,6 +15,7 @@ let lastSaved = 0;
 let readRevision = 0;    // 既読フラグを書き込むたびに増える。一覧側の読み直しの合図
 let autoAdvancing = false;   // いま自動送りの最中か
 let autoAdvanceBlocked = null; // 自動送りがブラウザに拒否された理由（UIで知らせる）
+let advancedFrom = null;     // 送り済みのepisodeId。二重に送らないための目印
 
 export function subscribe(fn) {
   listeners.add(fn);
@@ -89,6 +90,17 @@ function updatePlaybackState() {
   } catch { /* 対応していない環境では黙って無視する */ }
 }
 
+/** 一覧の並び替えやフィルタが変わったときに、送り先の順番を追従させる */
+export function setQueue(nextQueue) {
+  queue = nextQueue;
+}
+
+/** 再生位置が終端に達しているか。ended が発火しない環境の判定に使う */
+function isAtEnd() {
+  if (!current || !Number.isFinite(audio.duration) || audio.duration <= 0) return false;
+  return audio.duration - audio.currentTime <= 0.6;
+}
+
 /** キュー内で現在の前後にあるエピソードを返す */
 function neighbour(offset) {
   if (!current) return null;
@@ -134,6 +146,7 @@ export function play(episode, showTitle, startAt = 0, nextQueue = null) {
   current = { ...episode, showTitle };
 
   if (!isSame) {
+    advancedFrom = null;
     pendingSeek = startAt > 0 ? startAt : 0;
     // iOS では load() を呼ぶとユーザー操作で得た再生許可が外れ、自動送りの play() が
     // 拒否されることがある。src を代入すれば読み込みは始まるので load() は呼ばない。
@@ -203,14 +216,31 @@ audio.addEventListener('loadedmetadata', () => {
   emit();
 });
 audio.addEventListener('play', () => { updatePlaybackState(); emit(); });
-audio.addEventListener('pause', () => { persist({ force: true }); updatePlaybackState(); emit(); });
-audio.addEventListener('timeupdate', () => { persist(); emit(); });
-audio.addEventListener('ended', () => {
+audio.addEventListener('pause', () => {
+  persist({ force: true });
+  updatePlaybackState();
+  emit();
+  // ended が発火しないまま終端で停止した場合の受け皿
+  if (isAtEnd()) finishAndAdvance();
+});
+audio.addEventListener('timeupdate', () => {
+  persist();
+  emit();
+  if (audio.paused && isAtEnd()) finishAndAdvance();
+});
+/**
+ * 1本を聴き終えたときの処理。既読にして次の回へ送る。
+ *
+ * iOS では末尾までシークした場合などに ended が発火せず pause で終わることがあるため、
+ * ended だけに頼らず「終端に達した」状態からも呼ぶ。二重に送らないよう印を付ける。
+ */
+function finishAndAdvance() {
   const finished = current;
-  if (finished) {
-    updateEpisodeState(finished, { isRead: true, position: 0, lastPlayedAt: Date.now() })
-      .then(markReadWritten, () => {});
-  }
+  if (!finished || advancedFrom === finished.episodeId) return;
+  advancedFrom = finished.episodeId;
+
+  updateEpisodeState(finished, { isRead: true, position: 0, lastPlayedAt: Date.now() })
+    .then(markReadWritten, () => {});
 
   // 次の回へ自動で送る。ここは再生セッションが続いている間の同期処理なので、
   // DBの読み取りを待たずに queue に埋めておいた resumeAt を使う。
@@ -226,7 +256,9 @@ audio.addEventListener('ended', () => {
   }
   updatePlaybackState();
   emit();
-});
+}
+
+audio.addEventListener('ended', finishAndAdvance);
 audio.addEventListener('error', () => emit());
 
 // アプリが背面に回る／閉じられる直前に取りこぼしなく保存する

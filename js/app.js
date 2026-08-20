@@ -166,6 +166,9 @@ function renderEpisodes() {
     return;
   }
 
+  // 並び替えやフィルタを変えたら、連続再生の送り先も画面の並びに合わせる
+  player.setQueue(playbackQueue());
+
   const playingId = player.getState().episode?.episodeId;
   list.innerHTML = episodes.map((ep) => {
     const state = show.states.get(ep.episodeId);
