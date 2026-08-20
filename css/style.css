@@ -69,6 +69,43 @@ button, input { font: inherit; color: inherit; }
 }
 .appbar__spacer { width: 44px; flex: none; }
 
+/* ---- アプリ名。アイコンの波形と配色に合わせる ---- */
+.brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.brand__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2.5px;
+  height: 16px;
+  flex: none;
+}
+.brand__bars i {
+  width: 3px;
+  border-radius: 2px;
+}
+.brand__bars i:nth-child(1) { height: 7px; background: #b07cff; }
+.brand__bars i:nth-child(2) { height: 12px; background: #7c5cff; }
+.brand__bars i:nth-child(3) { height: 16px; background: #4f9bff; }
+.brand__name {
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #fff;
+}
+/* 背景を文字型に切り抜けるなら、アイコンと同じ白→薄紫→青の流れを載せる */
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .brand__name {
+    background: linear-gradient(100deg, #ffffff 0%, #ece6ff 45%, #a9c6ff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 7px rgba(124, 92, 255, 0.45));
+  }
+}
+
 .iconbtn {
   width: 44px; height: 44px;
   display: grid; place-items: center;
