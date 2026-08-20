@@ -253,6 +253,11 @@ check('ホームに版が表示される', /\d{4}-\d{2}-\d{2}/.test(await page.t
 page.once('dialog', (d) => d.dismiss());
 await page.click('#version');
 
+// --- ダブルタップ拡大の抑止
+check('touch-action で二度押しの拡大を止めている',
+  await page.evaluate(() => getComputedStyle(document.body).touchAction === 'manipulation'),
+  await page.evaluate(() => getComputedStyle(document.body).touchAction));
+
 // --- Service Worker / manifest
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));
 const manifest = await (await page.request.get('http://localhost:8099/manifest.webmanifest')).json();

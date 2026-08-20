@@ -21,6 +21,8 @@ html, body {
   margin: 0;
   height: 100%;
   overscroll-behavior-y: none;
+  /* iOSのダブルタップ拡大を止める。ピンチによる拡大は残るので手動でズームはできる */
+  touch-action: manipulation;
 }
 
 body {

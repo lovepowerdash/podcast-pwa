@@ -167,6 +167,8 @@ npm test
   （二重に送らないよう、送り済みの episodeId を覚えておく）
 - それでも自動再生が拒否された場合は理由をトーストで出す（黙って止まらないようにするため）。
   メタデータは次の回のままなので、ロック画面の再生ボタンでそのまま続けられる
+- ダブルタップの拡大は `touch-action: manipulation` で止めている。
+  `user-scalable=no` は iOS 10 以降の Safari が無視するうえ、ピンチ操作まで塞いでしまう
 - iOS 17.4 以降、EU 域内では PWA の standalone 起動が廃止されている（日本は対象外）
 - Service Worker / IndexedDB のストレージは Chrome より制限が厳しく、長期間未使用だと破棄されうる
 - Service Worker はネットワーク優先にしてある。加えて `index.html` の先頭で現行以外の
