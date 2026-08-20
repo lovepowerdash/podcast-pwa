@@ -19,7 +19,9 @@
 <!-- ===== ホーム（フォロー中番組一覧） ===== -->
 <section class="screen" id="screen-home" hidden>
   <header class="appbar">
-    <span class="appbar__spacer"></span>
+    <button class="iconbtn" id="home-settings" type="button" aria-label="フィード取得用プロキシの設定">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2M12 18.5v2M4.9 7.8l1.7 1M17.4 15.2l1.7 1M4.9 16.2l1.7-1M17.4 8.8l1.7-1"/></svg>
+    </button>
     <h1 class="appbar__title">ポッドキャスト</h1>
     <a class="iconbtn" href="#/search" aria-label="番組を検索">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><line x1="16" y1="16" x2="21" y2="21"/></svg>
@@ -112,6 +114,19 @@
 
 <audio id="audio" preload="metadata" playsinline></audio>
 
-<script type="module" src="./js/app.js"></script>
+<script>
+// 旧バージョンのService Workerがキャッシュ優先で古いJSを配り続けるのを断ち切るため、
+// 現行以外のキャッシュを消してからアプリを読み込む。index.html自体は常にネットワークから
+// 取得されるので、この処理だけは確実に最新のものが動く。
+(async () => {
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== 'podcast-pwa-v2').map((k) => caches.delete(k)));
+    }
+  } catch { /* キャッシュを触れない環境でも読み込みは続行する */ }
+  await import('./js/app.js');
+})();
+</script>
 </body>
 </html>

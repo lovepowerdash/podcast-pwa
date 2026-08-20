@@ -6,7 +6,7 @@ import {
   listFollows, getFollow, addFollow, removeFollow, putFollow, setSortOrder, episodeStateMap,
 } from './db.js';
 import * as player from './player.js';
-import { PLAYBACK_RATES } from './config.js';
+import { CUSTOM_PROXY_KEY } from './config.js';
 import { $, escapeHtml, formatTime, formatDuration, formatDate, toast, spinner } from './ui.js';
 
 // 現在のエピソード一覧画面が扱っている番組の状態
@@ -83,6 +83,27 @@ async function renderHome() {
       <button class="row__remove" type="button" data-unfollow="${escapeHtml(f.feedUrl)}" aria-label="フォローを解除">✕</button>
     </div>`).join('');
 }
+
+// 公開プロキシが使えない番組向けに、自前プロキシのURLを端末側で差し替えられるようにする。
+// （ソースを書き換えて再デプロイしなくても試せるようにするための逃げ道）
+$('home-settings').addEventListener('click', () => {
+  const current = localStorage.getItem(CUSTOM_PROXY_KEY) || '';
+  const input = prompt(
+    'フィード取得に使う自前プロキシのURLを入力してください。\n'
+    + '例: https://xxxx.workers.dev/?url=\n'
+    + '空欄にすると既定のプロキシに戻ります。',
+    current,
+  );
+  if (input === null) return;
+  const value = input.trim();
+  if (value) {
+    localStorage.setItem(CUSTOM_PROXY_KEY, value);
+    toast('自前プロキシを設定しました');
+  } else {
+    localStorage.removeItem(CUSTOM_PROXY_KEY);
+    toast('既定のプロキシに戻しました');
+  }
+});
 
 $('home-list').addEventListener('click', async (event) => {
   const button = event.target.closest('[data-unfollow]');
@@ -322,13 +343,25 @@ document.addEventListener('visibilitychange', async () => {
 // ---- 起動 -------------------------------------------------------------------
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  });
+  // すでに旧Service Workerに制御されている場合、新しいものが引き継いだ時点で
+  // 読み込み済みの古いコードを捨てるために一度だけ再読み込みする
+  if (navigator.serviceWorker.controller) {
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+  }
+  // app.js は index.html から動的importされるため、この時点で load 済みのことがある
+  const register = () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then((registration) => registration.update())
+      .catch(() => {});
+  };
+  if (document.readyState === 'complete') register();
+  else window.addEventListener('load', register);
 }
-
-// 再生速度の選択肢を1周ぶんだけ検証しておく（設定ミスの早期検出）
-if (!PLAYBACK_RATES.includes(1)) console.warn('PLAYBACK_RATES に等倍速が含まれていません');
 
 route();
 renderPlayer(player.getState());

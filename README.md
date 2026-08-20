@@ -45,6 +45,7 @@ npm start   # http://localhost:8080 で配信
   「直接取得」→ 公開 CORS プロキシ 3 種の順。動かなくなったらここを書き換える
 - `FEED_FETCH_TIMEOUT_MS` — 1 経路あたりの上限時間（既定 15 秒）。応答しないプロキシで待たされないため
 - `FEED_CACHE_TTL_SEC` — フィードキャッシュの有効期限（既定 900 秒 = 15 分）
+- ホーム画面左上の歯車から自前プロキシの URL を入れると、ソースを書き換えずに最優先で使える
 - `SEEK_SECONDS`、`PLAYBACK_RATES`、`READ_RATIO`（既読とみなす再生割合）
 
 iTunes Search API は CORS 許可済みのためプロキシを通さず直接 fetch している。
@@ -60,7 +61,10 @@ RSS が数 MB になるため、`413 Payload Too Large` やタイムアウトで
 1. https://dash.cloudflare.com/ → Workers & Pages → Create → Start with Hello World → Deploy
 2. 作成した Worker の Edit code を開き、`worker/cors-proxy.js` の中身を貼り付けて Deploy
 3. 発行された `https://<名前>.<アカウント>.workers.dev` を控える
-4. `js/config.js` の `FEED_SOURCES` 先頭にあるコメント行を有効にして URL を差し替える
+4. アプリのホーム画面左上の歯車から `https://<名前>.workers.dev/?url=` を貼り付ける
+   （端末の localStorage に保存され、`FEED_SOURCES` より優先される。再デプロイ不要）
+
+恒久的に既定へ組み込むなら、`js/config.js` の `FEED_SOURCES` 先頭にあるコメント行を有効にする。
 
 ```js
 { name: 'my-worker', build: (url) => `https://<名前>.workers.dev/?url=${encodeURIComponent(url)}` },
@@ -119,3 +123,6 @@ npm test
 - Media Session の `artwork` は表示不具合の報告があるため最初から設定していない
 - iOS 17.4 以降、EU 域内では PWA の standalone 起動が廃止されている（日本は対象外）
 - Service Worker / IndexedDB のストレージは Chrome より制限が厳しく、長期間未使用だと破棄されうる
+- Service Worker はネットワーク優先にしてある。加えて `index.html` の先頭で現行以外の
+  キャッシュを削除してからアプリを読み込むため、古い Service Worker が残っていても
+  次回の読み込みで最新のコードに入れ替わる（キャッシュ優先の旧版で更新が届かなくなった経験による）

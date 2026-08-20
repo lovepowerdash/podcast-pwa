@@ -23,6 +23,25 @@ export const FEED_SOURCES = [
 // 応答の無いプロキシで待たされ続けないよう、1経路あたりの上限時間を決めておく
 export const FEED_FETCH_TIMEOUT_MS = 15000;
 
+// ソースを書き換えずに端末側でプロキシを差し替えるための保存キー。
+// ホーム画面の歯車から入力でき、設定されていれば FEED_SOURCES より優先される。
+export const CUSTOM_PROXY_KEY = 'feedProxyTemplate';
+
+export function customFeedSource() {
+  let raw = '';
+  try {
+    raw = (localStorage.getItem(CUSTOM_PROXY_KEY) || '').trim();
+  } catch { return null; } // プライベートブラウズ等でlocalStorageが使えない場合
+  if (!raw) return null;
+  return {
+    name: '自前プロキシ',
+    // `...?url={url}` のようなテンプレートでも、末尾に繋ぐだけの形でも受け付ける
+    build: (url) => (raw.includes('{url}')
+      ? raw.replace('{url}', encodeURIComponent(url))
+      : raw + encodeURIComponent(url)),
+  };
+}
+
 // iTunes Search APIはCORS許可済みなのでプロキシを通さず直接fetchする。
 export const ITUNES_SEARCH_ENDPOINT = 'https://itunes.apple.com/search';
 export const ITUNES_COUNTRY = 'JP';

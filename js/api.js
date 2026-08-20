@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 import {
   FEED_SOURCES, FEED_FETCH_TIMEOUT_MS, ITUNES_SEARCH_ENDPOINT,
-  ITUNES_COUNTRY, ITUNES_LIMIT, FEED_CACHE_TTL_SEC,
+  ITUNES_COUNTRY, ITUNES_LIMIT, FEED_CACHE_TTL_SEC, customFeedSource,
 } from './config.js';
 import { getFeedCache, putFeedCache } from './db.js';
 
@@ -108,7 +108,8 @@ async function fetchWithTimeout(url) {
 
 async function fetchFeedText(feedUrl) {
   const errors = [];
-  for (const source of FEED_SOURCES) {
+  const sources = [customFeedSource(), ...FEED_SOURCES].filter(Boolean);
+  for (const source of sources) {
     try {
       const res = await fetchWithTimeout(source.build(feedUrl));
       // 413 はプロキシのサイズ上限。エピソード数の多い番組で起きるので理由を明示する
