@@ -391,6 +391,18 @@ check('差分が空なら一覧は変わらない', (await page.locator('[data-e
 await page.unroute('**/api/feed*');
 await page.route('**/api/feed*', (route) => route.abort('failed'));
 
+// --- 使い方
+if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="#/"]');
+await page.click('a[href="#/help"]');
+await page.waitForSelector('#help:not([hidden])');
+const helpText = await page.textContent('.help__body');
+check('使い方に主な操作が載っている',
+  ['番組を追加', '並び替え', '未再生のみ', '次の回へ自動', 'ここまで再生済み', 'ロック画面', 'ホーム画面に追加']
+    .every((word) => helpText.includes(word)));
+await page.click('#help-close');
+await page.waitForSelector('#help', { state: 'hidden' });
+check('使い方を閉じるとホームに戻る', await page.isVisible('#screen-home'));
+
 // --- ダブルタップ拡大の抑止
 check('touch-action で拡大を止めている（縦スクロールのみ許可）',
   await page.evaluate(() => getComputedStyle(document.body).touchAction === 'pan-y'),

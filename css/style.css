@@ -315,6 +315,29 @@ button, input { font: inherit; color: inherit; }
 }
 .mini__btn:active { background: var(--surface); }
 
+/* ---- 使い方 ---- */
+.help {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.help[hidden] { display: none; }
+.help__body { padding: 8px 20px calc(32px + var(--safe-bottom)); }
+.help__body h2 {
+  margin: 24px 0 8px;
+  font-size: 15px;
+  color: var(--accent);
+}
+.help__body h2:first-child { margin-top: 12px; }
+.help__body p { margin: 0 0 10px; font-size: 14px; line-height: 1.75; color: #d7d3e4; }
+.help__body ul { margin: 0 0 10px; padding-left: 20px; }
+.help__body li { font-size: 14px; line-height: 1.75; color: #d7d3e4; margin-bottom: 4px; }
+.help__body b { color: var(--text); }
+
 /* ---- フルプレイヤー ---- */
 .player {
   position: fixed;

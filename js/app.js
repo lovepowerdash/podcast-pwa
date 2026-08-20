@@ -37,8 +37,21 @@ function openFullPlayer(open) {
   document.body.classList.toggle('player-open', open);
 }
 
+function openHelp(open) {
+  $('help').hidden = !open;
+  document.body.classList.toggle('player-open', open);
+}
+
 function route() {
   const hash = location.hash || '#/';
+
+  // 使い方は他の画面に重ねて出す。戻る操作でそのまま閉じられる
+  if (hash === '#/help') {
+    openFullPlayer(false);
+    openHelp(true);
+    return;
+  }
+  openHelp(false);
 
   if (hash === '#/player') {
     if (!player.getState().episode) { location.replace(lastScreenHash); return; }
