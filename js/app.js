@@ -130,14 +130,17 @@ async function renderHome() {
   const footer = `<button class="version" type="button" id="version">${escapeHtml(APP_VERSION)}</button>`;
 
   if (follows.length === 0) {
-    // まだ何も無く、かつブラウザのタブで開かれているときだけ、追加の案内を出す
+    // 案内はブラウザの操作パネルに近い画面下端へ寄せる（共有ボタンへの動線を短くするため）
+    list.classList.add('is-empty');
     list.innerHTML = `
       <div class="empty">
         <p>フォロー中の番組はまだありません。</p>
         <a class="btn" href="#/search">番組を検索する</a>
-      </div>${installTip()}${footer}`;
+      </div>
+      <div class="home__bottom">${installTip()}${footer}</div>`;
     return;
   }
+  list.classList.remove('is-empty');
 
   list.innerHTML = follows.map((f) => `
     <div class="row">
@@ -524,6 +527,8 @@ function renderPlayer(state) {
   const { episode, playing, position, duration, rate } = state;
 
   $('mini').hidden = !episode;
+  // ミニプレイヤーの高さぶんの余白は、出ているときだけ確保する
+  document.body.classList.toggle('is-playing', Boolean(episode));
   if (!episode) {
     if (!$('player').hidden) history.back();
     return;

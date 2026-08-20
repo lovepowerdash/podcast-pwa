@@ -84,8 +84,13 @@ button, input { font: inherit; color: inherit; }
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: calc(var(--mini-h) + var(--safe-bottom) + 16px);
+  padding-bottom: calc(var(--safe-bottom) + 16px);
 }
+/* ミニプレイヤーが出ているときだけ、その分の余白を確保する */
+body.is-playing .scroll { padding-bottom: calc(var(--mini-h) + var(--safe-bottom) + 16px); }
+/* 中身が少ない画面では、下端に置きたい要素を押し下げる */
+.scroll.is-empty { display: flex; flex-direction: column; }
+.home__bottom { margin-top: auto; }
 
 /* ---- 並び替えトグル（常時固定・1タップで反転） ---- */
 .sortbar {
@@ -290,7 +295,7 @@ button, input { font: inherit; color: inherit; }
 .version {
   display: block;
   width: 100%;
-  padding: 20px 16px;
+  padding: 16px;
   border: 0;
   background: none;
   color: var(--text-dim);
@@ -298,7 +303,7 @@ button, input { font: inherit; color: inherit; }
   text-align: center;
   cursor: pointer;
 }
-.empty { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 56px 16px; color: var(--text-dim); }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 48px 16px 16px; color: var(--text-dim); }
 
 /* ---- ミニプレイヤー ---- */
 .mini {
@@ -418,7 +423,7 @@ button, input { font: inherit; color: inherit; }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--mini-h) + var(--safe-bottom) + 16px);
+  bottom: calc(var(--safe-bottom) + 16px);
   transform: translateX(-50%);
   z-index: 40;
   width: max-content;
@@ -430,6 +435,7 @@ button, input { font: inherit; color: inherit; }
 }
 .toast[hidden] { display: none; }
 .toast { display: flex; align-items: center; gap: 12px; }
+body.is-playing .toast { bottom: calc(var(--mini-h) + var(--safe-bottom) + 16px); }
 .toast__action {
   flex: none;
   border: 0;
