@@ -35,12 +35,28 @@ export function formatDate(timestamp) {
 }
 
 let toastTimer = null;
-export function toast(message) {
+
+/**
+ * 画面下部の一時的な通知。
+ * action を渡すと取り消しなどのボタンを添えられる（戻せない操作を怖くしないため）。
+ */
+export function toast(message, action = null) {
   const el = $('toast');
-  el.textContent = message;
+  el.innerHTML = `<span>${escapeHtml(message)}</span>`;
+  if (action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'toast__action';
+    button.textContent = action.label;
+    button.addEventListener('click', () => {
+      el.hidden = true;
+      action.run();
+    });
+    el.appendChild(button);
+  }
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
+  toastTimer = setTimeout(() => { el.hidden = true; }, action ? 6000 : 3200);
 }
 
 export function spinner(label = '読み込み中…') {

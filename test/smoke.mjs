@@ -98,7 +98,7 @@ await page.waitForSelector('[data-episode]');
 check('並び順が番組ごとに永続化される', (await page.textContent('#sort-label')) === '公開日 古い順');
 
 // --- 再生
-await page.click('.ep >> nth=0');
+await page.click('[data-episode] >> nth=0');
 await page.waitForSelector('#mini:not([hidden])');
 check('ミニプレイヤーの出現', (await page.textContent('#mini-title')).includes('第1回'));
 check('再生開始後も一覧に留まる', page.url().includes('#/show/'));
@@ -170,6 +170,26 @@ await page.evaluate(() => {
 });
 await page.waitForFunction(() => document.getElementById('mini-title').textContent.includes('第3回'), null, { timeout: 8000 }).catch(() => {});
 check('endedが発火しなくても終端で停止したら次へ送る', (await page.textContent('#mini-title')).includes('第3回'), await page.textContent('#mini-title'));
+
+// --- 最初の回からこの回までをまとめて再生済みにする
+await page.click('#filter-toggle'); // いったん未再生のみにして対象件数を確かめやすくする
+await page.click('#filter-toggle');
+page.once('dialog', (d) => d.accept());
+await page.click('[data-mark] >> nth=2'); // 昇順の3件目 = 第3回まで
+await page.waitForTimeout(400);
+const marked = await page.evaluate(() => new Promise((resolve) => {
+  const req = indexedDB.open('podcast_pwa_db');
+  req.onsuccess = () => {
+    const s = req.result.transaction('episodes').objectStore('episodes').getAll();
+    s.onsuccess = () => resolve(s.result.filter((r) => r.isRead).length);
+  };
+}));
+check('この回までをまとめて再生済みにする', marked === 3, `${marked}件`);
+check('一覧の表示にも反映される', (await page.locator('.ep.is-read').count()) === 3, `${await page.locator('.ep.is-read').count()}件`);
+check('取り消しボタンが出る', await page.isVisible('.toast__action'));
+await page.click('.toast__action');
+await page.waitForTimeout(400);
+check('取り消すと元の状態に戻る', (await page.locator('.ep.is-read').count()) === 2, `${await page.locator('.ep.is-read').count()}件`);
 
 // --- 再生済みを隠すフィルタ
 check('フィルタの初期ラベル', (await page.textContent('#filter-label')) === 'すべて表示');

@@ -148,17 +148,36 @@ button, input { font: inherit; color: inherit; }
 .ep {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  width: 100%;
-  padding: 14px 16px;
-  border: 0;
   border-bottom: 1px solid var(--line);
+}
+.ep.is-playing { background: var(--surface); }
+.ep__play {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 14px 8px 14px 16px;
+  border: 0;
   background: none;
   text-align: left;
   cursor: pointer;
 }
-.ep:active { background: var(--surface); }
-.ep.is-playing { background: var(--surface); }
+.ep__play:active { background: var(--surface); }
+.ep__mark {
+  width: 44px;
+  align-self: stretch;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.ep__mark:active { background: var(--surface-2); color: var(--accent); }
+.ep__mark svg { width: 20px; height: 20px; }
+.ep.is-read .ep__mark { opacity: 0.35; }
 .ep__dot {
   width: 8px; height: 8px;
   margin-top: 7px;
@@ -317,3 +336,13 @@ button, input { font: inherit; color: inherit; }
   font-size: 13px;
 }
 .toast[hidden] { display: none; }
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast__action {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}

@@ -4,7 +4,7 @@
 import { searchPodcasts, fetchFeed } from './api.js';
 import {
   listFollows, getFollow, addFollow, removeFollow, putFollow,
-  setSortOrder, setHideRead, episodeStateMap,
+  setSortOrder, setHideRead, episodeStateMap, setEpisodesRead,
 } from './db.js';
 import * as player from './player.js';
 import { CUSTOM_PROXY_KEY, APP_VERSION } from './config.js';
@@ -185,16 +185,21 @@ function renderEpisodes() {
     const progress = state && duration > 0 ? Math.min(1, (state.position || 0) / duration) : 0;
     const meta = [formatDate(ep.pubDate), formatDuration(duration)].filter(Boolean).join(' ・ ');
     return `
-      <button class="ep ${state?.isRead ? 'is-read' : 'is-unread'} ${ep.episodeId === playingId ? 'is-playing' : ''}"
-              type="button" data-episode="${escapeHtml(ep.episodeId)}">
-        <span class="ep__dot" aria-hidden="true"></span>
-        <span class="ep__body">
-          <span class="ep__title">${escapeHtml(ep.title)}</span>
-          <span class="ep__meta">${escapeHtml(meta)}${state?.isRead ? ' ・ 再生済み' : ''}</span>
-          ${progress > 0.01 && !state?.isRead
-            ? `<span class="ep__bar"><i style="width:${(progress * 100).toFixed(1)}%"></i></span>` : ''}
-        </span>
-      </button>`;
+      <div class="ep ${state?.isRead ? 'is-read' : 'is-unread'} ${ep.episodeId === playingId ? 'is-playing' : ''}">
+        <button class="ep__play" type="button" data-episode="${escapeHtml(ep.episodeId)}">
+          <span class="ep__dot" aria-hidden="true"></span>
+          <span class="ep__body">
+            <span class="ep__title">${escapeHtml(ep.title)}</span>
+            <span class="ep__meta">${escapeHtml(meta)}${state?.isRead ? ' ・ 再生済み' : ''}</span>
+            ${progress > 0.01 && !state?.isRead
+              ? `<span class="ep__bar"><i style="width:${(progress * 100).toFixed(1)}%"></i></span>` : ''}
+          </span>
+        </button>
+        <button class="ep__mark" type="button" data-mark="${escapeHtml(ep.episodeId)}"
+                aria-label="最初の回からこの回までを再生済みにする">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="2 13 6 17 13 8"/><polyline points="10 13 14 17 22 7"/></svg>
+        </button>
+      </div>`;
   }).join('');
 }
 
@@ -260,9 +265,44 @@ $('show-refresh').addEventListener('click', () => {
   if (show.feedUrl) openShow(show.feedUrl, { force: true });
 });
 
+/**
+ * 他のアプリから乗り換えた場合、どこまで聴いたかを引き継げない。
+ * 「最初の回からこの回まで」をまとめて再生済みにして、続きから始められるようにする。
+ */
+async function markThrough(episode) {
+  // 並び順に関係なく、公開日が対象の回以前のものを対象にする
+  const targets = show.episodes.filter((ep) => (ep.pubDate || 0) <= (episode.pubDate || 0));
+  const changing = targets.filter((ep) => !show.states.get(ep.episodeId)?.isRead);
+
+  if (changing.length === 0) {
+    toast('この回までは、すでに再生済みです');
+    return;
+  }
+  if (!confirm(`「${episode.title}」までの ${changing.length} 件を再生済みにしますか？`)) return;
+
+  await setEpisodesRead(targets, true);
+  show.states = await episodeStateMap(show.feedUrl);
+  renderEpisodes();
+  toast(`${changing.length} 件を再生済みにしました`, {
+    label: '取り消す',
+    run: async () => {
+      await setEpisodesRead(changing, false);
+      show.states = await episodeStateMap(show.feedUrl);
+      renderEpisodes();
+    },
+  });
+}
+
 // iOS ではユーザー操作のイベントハンドラ内で同期的に play() を呼ぶ必要があるため、
 // 再生位置は描画時に読み込んだ show.states から同期的に取り出す（await を挟まない）
 $('episode-list').addEventListener('click', (event) => {
+  const mark = event.target.closest('[data-mark]');
+  if (mark) {
+    const target = show.episodes.find((ep) => ep.episodeId === mark.dataset.mark);
+    if (target) markThrough(target);
+    return;
+  }
+
   const button = event.target.closest('[data-episode]');
   if (!button) return;
   const episode = show.episodes.find((ep) => ep.episodeId === button.dataset.episode);

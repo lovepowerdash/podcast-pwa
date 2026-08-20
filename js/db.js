@@ -114,9 +114,8 @@ export function putEpisodeState(state) {
   return tx('episodes', 'readwrite', (s) => s.put(state));
 }
 
-/** 既存レコードにパッチを当てて保存する（無ければ episode の情報から作る） */
-export async function updateEpisodeState(episode, patch) {
-  const current = (await getEpisodeState(episode.episodeId)) || {
+function baseState(episode) {
+  return {
     episodeId: episode.episodeId,
     feedUrl: episode.feedUrl,
     title: episode.title,
@@ -127,9 +126,38 @@ export async function updateEpisodeState(episode, patch) {
     duration: episode.duration || 0,
     lastPlayedAt: 0,
   };
+}
+
+/** 既存レコードにパッチを当てて保存する（無ければ episode の情報から作る） */
+export async function updateEpisodeState(episode, patch) {
+  const current = (await getEpisodeState(episode.episodeId)) || baseState(episode);
   const next = { ...current, ...patch, title: episode.title, audioUrl: episode.audioUrl };
   await putEpisodeState(next);
   return next;
+}
+
+/**
+ * 複数のエピソードの既読状態をまとめて切り替える。
+ * 数百件を1件ずつ書くと遅いので、ひとつのトランザクションで処理する。
+ */
+export async function setEpisodesRead(episodes, isRead) {
+  if (episodes.length === 0) return;
+  const db = await open();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction('episodes', 'readwrite');
+    const store = transaction.objectStore('episodes');
+    for (const episode of episodes) {
+      const request = store.get(episode.episodeId);
+      request.onsuccess = () => {
+        const current = request.result || baseState(episode);
+        // 既読にするときは再生位置も先頭に戻す（途中まで聴いた印を残さない）
+        store.put({ ...current, isRead, position: isRead ? 0 : current.position });
+      };
+    }
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
 }
 
 // ---- feedCache ------------------------------------------------------------
