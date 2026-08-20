@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>テスト番組</title>
+    <item>
+      <title>第1回 いちばん古い回</title>
+      <guid>ep-1</guid>
+      <pubDate>Mon, 05 Feb 2024 09:00:00 +0900</pubDate>
+      <itunes:duration>00:25:00</itunes:duration>
+      <enclosure url="http://localhost:8099/__audio/ep1.wav" type="audio/wav" length="1000"/>
+    </item>
+    <item>
+      <title>第2回 まんなかの回</title>
+      <pubDate>Mon, 12 Feb 2024 09:00:00 +0900</pubDate>
+      <itunes:duration>1500</itunes:duration>
+      <enclosure url="http://localhost:8099/__audio/ep2.wav" type="audio/wav" length="1000"/>
+    </item>
+    <item>
+      <title>第3回 いちばん新しい回</title>
+      <guid isPermaLink="false">ep-3</guid>
+      <pubDate>Mon, 19 Feb 2024 09:00:00 +0900</pubDate>
+      <itunes:duration>32:10</itunes:duration>
+      <enclosure url="http://localhost:8099/__audio/ep3.wav" type="audio/wav" length="1000"/>
+    </item>
+  </channel>
+</rss>

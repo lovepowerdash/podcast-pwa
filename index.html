@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Podcast PWA</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12111a">
+<meta name="description" content="個人利用向けポッドキャスト再生PWA">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Podcast">
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+<!-- ===== ホーム（フォロー中番組一覧） ===== -->
+<section class="screen" id="screen-home" hidden>
+  <header class="appbar">
+    <span class="appbar__spacer"></span>
+    <h1 class="appbar__title">ポッドキャスト</h1>
+    <a class="iconbtn" href="#/search" aria-label="番組を検索">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><line x1="16" y1="16" x2="21" y2="21"/></svg>
+    </a>
+  </header>
+  <div class="scroll" id="home-list"></div>
+</section>
+
+<!-- ===== エピソード一覧 ===== -->
+<section class="screen" id="screen-show" hidden>
+  <header class="appbar">
+    <a class="iconbtn" href="#/" aria-label="ホームへ戻る">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 4 7 12 15 20"/></svg>
+    </a>
+    <h1 class="appbar__title" id="show-title">番組</h1>
+    <button class="iconbtn" id="show-refresh" type="button" aria-label="最新のエピソードを取得">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 5 20 11 14 11"/><path d="M18.4 15a7 7 0 1 1-1.2-7"/></svg>
+    </button>
+  </header>
+
+  <!-- 最重要要件: 常時固定・1タップで反転する並び替えトグル -->
+  <div class="sortbar">
+    <button class="sortbtn" id="sort-toggle" type="button" aria-live="polite">
+      <svg class="sortbtn__icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="4" x2="12" y2="20"/><polyline id="sort-arrow" points="7 15 12 20 17 15"/></svg>
+      <span id="sort-label">公開日 新しい順</span>
+    </button>
+  </div>
+
+  <div class="scroll" id="episode-list"></div>
+</section>
+
+<!-- ===== 番組検索 ===== -->
+<section class="screen" id="screen-search" hidden>
+  <header class="appbar">
+    <a class="iconbtn" href="#/" aria-label="ホームへ戻る">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 4 7 12 15 20"/></svg>
+    </a>
+    <h1 class="appbar__title">番組を検索</h1>
+    <span class="appbar__spacer"></span>
+  </header>
+  <form class="searchbar" id="search-form">
+    <input class="searchbar__input" id="search-input" type="search" placeholder="番組名で検索" enterkeyhint="search" autocomplete="off">
+    <button class="searchbar__btn" type="submit">検索</button>
+  </form>
+  <div class="scroll" id="search-list"></div>
+</section>
+
+<!-- ===== ミニプレイヤー（常時固定） ===== -->
+<div class="mini" id="mini" hidden>
+  <a class="mini__tap" href="#/player" aria-label="プレイヤーを開く">
+    <span class="mini__title" id="mini-title"></span>
+    <span class="mini__show" id="mini-show"></span>
+    <span class="mini__bar"><i id="mini-progress"></i></span>
+  </a>
+  <button class="mini__btn" id="mini-toggle" type="button" aria-label="再生 / 一時停止">
+    <svg viewBox="0 0 24 24" aria-hidden="true" id="mini-icon"><polygon points="7 4 20 12 7 20"/></svg>
+  </button>
+</div>
+
+<!-- ===== フルプレイヤー（オーバーレイ / 作り込みは最小限） ===== -->
+<section class="player" id="player" hidden>
+  <header class="appbar">
+    <button class="iconbtn" id="player-close" type="button" aria-label="閉じる">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+    <h1 class="appbar__title">再生中</h1>
+    <span class="appbar__spacer"></span>
+  </header>
+  <div class="player__body">
+    <p class="player__show" id="player-show"></p>
+    <h2 class="player__title" id="player-title"></h2>
+    <input class="player__seek" id="player-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="再生位置">
+    <div class="player__times"><span id="player-cur">0:00</span><span id="player-dur">0:00</span></div>
+    <div class="player__controls">
+      <button class="ctrl" id="player-back" type="button" aria-label="15秒戻す"><span>15</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5a7 7 0 1 1-6.7 9"/><polyline points="4 2 4 7 9 7"/></svg>
+      </button>
+      <button class="ctrl ctrl--main" id="player-toggle" type="button" aria-label="再生 / 一時停止">
+        <svg viewBox="0 0 24 24" aria-hidden="true" id="player-icon"><polygon points="7 4 20 12 7 20"/></svg>
+      </button>
+      <button class="ctrl" id="player-fwd" type="button" aria-label="15秒進める"><span>15</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5a7 7 0 1 0 6.7 9"/><polyline points="20 2 20 7 15 7"/></svg>
+      </button>
+    </div>
+    <button class="ratebtn" id="player-rate" type="button">1.0x</button>
+  </div>
+</section>
+
+<div class="toast" id="toast" hidden></div>
+
+<audio id="audio" preload="metadata" playsinline></audio>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
