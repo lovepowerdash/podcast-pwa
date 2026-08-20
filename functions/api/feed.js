@@ -31,7 +31,7 @@ export async function onRequestGet({ request }) {
   const upstream = await fetch(parsed.toString(), {
     headers: {
       // 配信元によってはUAが無いと弾かれる
-      'user-agent': 'mimibako/1.0',
+      'user-agent': 'podflow/1.0',
       accept: 'application/rss+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8',
     },
     // 同じフィードへの連続アクセスはCloudflare側のキャッシュで受ける

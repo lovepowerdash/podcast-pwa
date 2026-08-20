@@ -1,6 +1,6 @@
-# みみばこ
+# podflow
 
-個人利用向けのポッドキャスト再生 PWA（みみばこ）。ビルド不要の静的サイト（素の HTML / CSS / ES Modules）で、
+個人利用向けのポッドキャスト再生 PWA。ビルド不要の静的サイト（素の HTML / CSS / ES Modules）で、
 Cloudflare Pages の無料枠にそのまま置いて iPhone のホーム画面から使うことを想定している。
 
 ## 実装済みの要件

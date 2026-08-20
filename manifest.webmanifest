@@ -1,6 +1,6 @@
 {
-  "name": "みみばこ",
-  "short_name": "みみばこ",
+  "name": "podflow",
+  "short_name": "podflow",
   "description": "個人利用向けのポッドキャスト再生アプリ",
   "lang": "ja",
   "start_url": "./",
