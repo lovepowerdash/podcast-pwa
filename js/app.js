@@ -3,7 +3,8 @@
 // ---------------------------------------------------------------------------
 import { searchPodcasts, fetchFeed } from './api.js';
 import {
-  listFollows, getFollow, addFollow, removeFollow, putFollow, setSortOrder, episodeStateMap,
+  listFollows, getFollow, addFollow, removeFollow, putFollow,
+  setSortOrder, setHideRead, episodeStateMap,
 } from './db.js';
 import * as player from './player.js';
 import { CUSTOM_PROXY_KEY } from './config.js';
@@ -14,6 +15,7 @@ const show = {
   feedUrl: null,
   title: '',
   sortOrder: 'desc',
+  hideRead: false,
   episodes: [],
   states: new Map(),
 };
@@ -116,9 +118,22 @@ $('home-list').addEventListener('click', async (event) => {
 
 // ---- エピソード一覧 ---------------------------------------------------------
 
-function sortedEpisodes() {
+/** 並び替えとフィルタを適用した、いま画面に出ている順番のエピソード */
+function visibleEpisodes() {
   const sign = show.sortOrder === 'asc' ? 1 : -1;
-  return [...show.episodes].sort((a, b) => sign * ((a.pubDate || 0) - (b.pubDate || 0)));
+  const sorted = [...show.episodes].sort((a, b) => sign * ((a.pubDate || 0) - (b.pubDate || 0)));
+  if (!show.hideRead) return sorted;
+  const playingId = player.getState().episode?.episodeId;
+  // 再生中のものは、既読になっても一覧から消さない
+  return sorted.filter((ep) => !show.states.get(ep.episodeId)?.isRead || ep.episodeId === playingId);
+}
+
+/** 連続再生用のキュー。endedハンドラ内でDBを待てないので再開位置も持たせる */
+function playbackQueue() {
+  return visibleEpisodes().map((ep) => {
+    const state = show.states.get(ep.episodeId);
+    return { ...ep, resumeAt: state?.isRead ? 0 : (state?.position || 0) };
+  });
 }
 
 function renderSortToggle() {
@@ -129,12 +144,25 @@ function renderSortToggle() {
   $('sort-toggle').setAttribute('aria-label', `並び替え: ${asc ? '古い順' : '新しい順'}。タップで反転`);
 }
 
+function renderFilterToggle() {
+  const hiding = show.hideRead;
+  $('filter-label').textContent = hiding ? '未再生のみ' : 'すべて表示';
+  // 目のアイコンに斜線を足して「隠している」ことを示す
+  $('filter-icon').innerHTML = hiding
+    ? '<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><line x1="4" y1="20" x2="20" y2="4"/>'
+    : '<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/>';
+  $('filter-toggle').classList.toggle('is-on', hiding);
+  $('filter-toggle').setAttribute('aria-label', `${hiding ? '再生済みを隠しています' : '再生済みも表示しています'}。タップで切り替え`);
+}
+
 function renderEpisodes() {
   const list = $('episode-list');
-  const episodes = sortedEpisodes();
+  const episodes = visibleEpisodes();
 
   if (episodes.length === 0) {
-    list.innerHTML = '<p class="placeholder">エピソードがありません。</p>';
+    list.innerHTML = show.hideRead && show.episodes.length > 0
+      ? '<p class="placeholder">未再生のエピソードはありません。</p>'
+      : '<p class="placeholder">エピソードがありません。</p>';
     return;
   }
 
@@ -165,8 +193,10 @@ async function openShow(feedUrl, { force = false } = {}) {
   show.feedUrl = feedUrl;
   show.title = follow.title;
   show.sortOrder = follow.sortOrder === 'asc' ? 'asc' : 'desc';
+  show.hideRead = follow.hideRead === true;
   $('show-title').textContent = follow.title;
   renderSortToggle();
+  renderFilterToggle();
   $('episode-list').innerHTML = spinner('エピソードを取得中…');
 
   try {
@@ -205,6 +235,15 @@ $('sort-toggle').addEventListener('click', async () => {
   if (show.feedUrl) await setSortOrder(show.feedUrl, show.sortOrder);
 });
 
+// 再生済みを一覧から外す。並び替えと同じく1タップで切り替わり、番組ごとに保存される
+$('filter-toggle').addEventListener('click', async () => {
+  show.hideRead = !show.hideRead;
+  renderFilterToggle();
+  renderEpisodes();
+  $('episode-list').scrollTop = 0;
+  if (show.feedUrl) await setHideRead(show.feedUrl, show.hideRead);
+});
+
 $('show-refresh').addEventListener('click', () => {
   if (show.feedUrl) openShow(show.feedUrl, { force: true });
 });
@@ -217,7 +256,8 @@ $('episode-list').addEventListener('click', (event) => {
   const episode = show.episodes.find((ep) => ep.episodeId === button.dataset.episode);
   if (!episode) return;
   const state = show.states.get(episode.episodeId);
-  player.play(episode, show.title, state?.isRead ? 0 : (state?.position || 0));
+  // 再生が終わったら一覧の次の回へ自動で進めるよう、いまの表示順をキューとして渡す
+  player.play(episode, show.title, state?.isRead ? 0 : (state?.position || 0), playbackQueue());
   renderEpisodes(); // 再生中の行を強調（画面遷移はしない）
 });
 
@@ -321,13 +361,18 @@ $('player-seek').addEventListener('change', () => {
 });
 
 let lastPlayingId = null;
-player.subscribe((state) => {
+let lastReadRevision = 0;
+player.subscribe(async (state) => {
   renderPlayer(state);
-  // 再生中エピソードが変わったら一覧の強調表示を更新する
+  // 再生中エピソードが変わったとき（自動送りを含む）と、既読が書き込まれたときに
+  // 一覧を読み直す。フィルタ表示が既読の反映を取りこぼさないようにするため。
   const id = state.episode?.episodeId || null;
-  if (id !== lastPlayingId) {
-    lastPlayingId = id;
-    if (!$('screen-show').hidden) renderEpisodes();
+  const changed = id !== lastPlayingId || state.readRevision !== lastReadRevision;
+  lastPlayingId = id;
+  lastReadRevision = state.readRevision;
+  if (changed && !$('screen-show').hidden && show.feedUrl) {
+    show.states = await episodeStateMap(show.feedUrl);
+    renderEpisodes();
   }
 });
 

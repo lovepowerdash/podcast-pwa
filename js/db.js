@@ -66,7 +66,7 @@ export async function addFollow({ feedUrl, title }) {
   const existing = await getFollow(feedUrl);
   if (existing) return existing;
   // 「フォロー」はRSSの仕様には存在しない、このアプリのローカル管理でしかない
-  const follow = { feedUrl, title, sortOrder: 'desc', followedAt: Date.now() };
+  const follow = { feedUrl, title, sortOrder: 'desc', hideRead: false, followedAt: Date.now() };
   await putFollow(follow);
   return follow;
 }
@@ -81,10 +81,17 @@ export async function removeFollow(feedUrl) {
 }
 
 export async function setSortOrder(feedUrl, sortOrder) {
+  await patchFollow(feedUrl, { sortOrder });
+}
+
+export async function setHideRead(feedUrl, hideRead) {
+  await patchFollow(feedUrl, { hideRead });
+}
+
+async function patchFollow(feedUrl, patch) {
   const follow = await getFollow(feedUrl);
   if (!follow) return;
-  follow.sortOrder = sortOrder;
-  await putFollow(follow);
+  await putFollow({ ...follow, ...patch });
 }
 
 // ---- episodes（既読/未読・再生進捗） ---------------------------------------

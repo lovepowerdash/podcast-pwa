@@ -157,6 +157,25 @@ const read = await page.evaluate(() => new Promise((resolve) => {
 }));
 check('最後まで再生すると既読になる', read.some((r) => r.isRead === true));
 
+// --- 終わったら一覧の次の回へ自動で送る
+await page.waitForFunction(() => document.getElementById('mini-title').textContent.includes('第2回'), null, { timeout: 8000 }).catch(() => {});
+check('終了後に次の回を自動再生する', (await page.textContent('#mini-title')).includes('第2回'), await page.textContent('#mini-title'));
+check('自動送り後も再生が続いている', await page.evaluate(() => !document.getElementById('audio').paused));
+
+// --- 再生済みを隠すフィルタ
+check('フィルタの初期ラベル', (await page.textContent('#filter-label')) === 'すべて表示');
+await page.click('#filter-toggle');
+await page.waitForTimeout(200);
+check('再生済みを隠すと一覧から消える', !(await page.textContent('#episode-list')).includes('第1回'), (await page.locator('.ep__title').allTextContents()).join(' | '));
+check('フィルタのラベルが切り替わる', (await page.textContent('#filter-label')) === '未再生のみ');
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector('[data-episode]');
+check('フィルタ設定が番組ごとに永続化される', (await page.textContent('#filter-label')) === '未再生のみ');
+check('再読み込み後も再生済みは隠れている', !(await page.textContent('#episode-list')).includes('第1回'));
+await page.click('#filter-toggle');
+await page.waitForTimeout(200);
+check('フィルタを戻すと全件表示に戻る', (await page.locator('[data-episode]').count()) === 3);
+
 // --- 配信元がCORSを許可している場合はプロキシを通さず直接取得する
 await page.unroute('https://feed.test/rss.xml');
 await page.route('https://feed.test/rss.xml', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));

@@ -9,8 +9,10 @@ const audio = document.getElementById('audio');
 const listeners = new Set();
 
 let current = null;      // 再生中のエピソード（+ showTitle）
+let queue = [];          // 連続再生の順番。一覧に表示されている順のスナップショット
 let pendingSeek = 0;     // メタデータ読み込み後に適用する再生位置
 let lastSaved = 0;
+let readRevision = 0;    // 既読フラグを書き込むたびに増える。一覧側の読み直しの合図
 
 export function subscribe(fn) {
   listeners.add(fn);
@@ -29,6 +31,7 @@ export function getState() {
     position: audio.currentTime || 0,
     duration: Number.isFinite(audio.duration) ? audio.duration : (current?.duration || 0),
     rate: audio.playbackRate,
+    readRevision,
   };
 }
 
@@ -49,6 +52,13 @@ async function persist({ force = false } = {}) {
     isRead: finished ? true : undefined,
     lastPlayedAt: now,
   }).catch(() => {});
+  if (finished) markReadWritten();
+}
+
+/** 既読の書き込みが終わったことを購読側へ知らせる（一覧のフィルタ表示がこれに追従する） */
+function markReadWritten() {
+  readRevision += 1;
+  emit();
 }
 
 // ---- Media Session --------------------------------------------------------
@@ -96,8 +106,12 @@ function setupMediaSession() {
  * 再生を開始する。
  * iOS はユーザー操作を起点としないと再生できないため、
  * この関数はタップイベントのハンドラ内から同期的に呼ぶこと（await を挟まない）。
+ *
+ * @param nextQueue 終了後に続けて再生する順番。各要素に resumeAt（再開位置）を入れておくと、
+ *                  自動送りのときも続きから再生できる（endedハンドラ内でDBを待てないため）。
  */
-export function play(episode, showTitle, startAt = 0) {
+export function play(episode, showTitle, startAt = 0, nextQueue = null) {
+  if (nextQueue) queue = nextQueue;
   const isSame = current && current.episodeId === episode.episodeId;
   current = { ...episode, showTitle };
 
@@ -160,8 +174,21 @@ audio.addEventListener('loadedmetadata', () => {
 audio.addEventListener('play', () => { updatePlaybackState(); emit(); });
 audio.addEventListener('pause', () => { persist({ force: true }); updatePlaybackState(); emit(); });
 audio.addEventListener('timeupdate', () => { persist(); emit(); });
-audio.addEventListener('ended', async () => {
-  if (current) await updateEpisodeState(current, { isRead: true, position: 0, lastPlayedAt: Date.now() });
+audio.addEventListener('ended', () => {
+  const finished = current;
+  if (finished) {
+    updateEpisodeState(finished, { isRead: true, position: 0, lastPlayedAt: Date.now() })
+      .then(markReadWritten, () => {});
+  }
+
+  // 次の回へ自動で送る。ここは再生セッションが続いている間の同期処理なので、
+  // DBの読み取りを待たずに queue に埋めておいた resumeAt を使う。
+  const index = finished ? queue.findIndex((ep) => ep.episodeId === finished.episodeId) : -1;
+  const next = index >= 0 ? queue[index + 1] : null;
+  if (next) {
+    play(next, finished.showTitle, next.resumeAt || 0);
+    return;
+  }
   updatePlaybackState();
   emit();
 });

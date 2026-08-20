@@ -88,6 +88,8 @@ button, input { font: inherit; color: inherit; }
 /* ---- 並び替えトグル（常時固定・1タップで反転） ---- */
 .sortbar {
   flex: none;
+  display: flex;
+  gap: 8px;
   padding: 8px 12px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
@@ -95,9 +97,12 @@ button, input { font: inherit; color: inherit; }
 .sortbtn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  flex: 1;
+  min-width: 0;
   min-height: 40px;
-  padding: 0 16px 0 12px;
+  padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface-2);
@@ -107,7 +112,9 @@ button, input { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .sortbtn:active { background: var(--accent); color: #17131f; }
-.sortbtn__icon { width: 18px; height: 18px; }
+.sortbtn__icon { width: 18px; height: 18px; flex: none; }
+.sortbtn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sortbtn.is-on { border-color: var(--accent); color: var(--accent); }
 
 /* ---- 汎用リスト行（ホーム / 検索結果） ---- */
 .row {
