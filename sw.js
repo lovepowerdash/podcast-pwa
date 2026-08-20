@@ -2,7 +2,7 @@
 // アプリシェルのみをキャッシュする Service Worker。
 // エピソードのダウンロード/オフライン再生は非要件のため、音声とフィードは一切キャッシュしない。
 // ---------------------------------------------------------------------------
-const CACHE = 'podcast-pwa-v3';
+const CACHE = 'podcast-pwa-v4';
 
 const APP_SHELL = [
   './',
@@ -40,8 +40,10 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  // 音声ファイル・RSSプロキシ・iTunes Search API は常にネットワークへ通す
+  // 音声ファイル・iTunes Search API は常にネットワークへ通す
   if (url.origin !== self.location.origin) return;
+  // フィードの中継も同一オリジンだが、内容はアプリ側でキャッシュ管理するので触らない
+  if (url.pathname.includes('/api/')) return;
 
   // GitHub Pages は max-age を付けて配信するため、素直に fetch すると Safari の
   // HTTPキャッシュが数分〜十数分ぶん古いコードを返す。更新の反映が遅れて原因の切り分けが

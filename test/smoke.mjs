@@ -58,6 +58,9 @@ await page.route('https://itunes.apple.com/search*', (route) => route.fulfill({
   status: 200, contentType: 'application/json',
   body: JSON.stringify({ resultCount: 1, results: [{ collectionName: 'テスト番組', artistName: 'テスト作者', feedUrl: 'https://feed.test/rss.xml', trackCount: 3 }] }),
 }));
+// 同一オリジンの中継は Pages Functions 側の処理で、この静的サーバーには無い。
+// 既定では失敗させ、公開プロキシへのフォールバックを検証する（専用の検証は後段にある）
+await page.route('**/api/feed*', (route) => route.abort('failed'));
 // 全経路を同時に投げるので、モックしないプロキシは実ネットワークに出る前に失敗させる
 await page.route('**podcast-proxy.lovepowerdash.workers.dev**', (route) => route.abort('failed'));
 await page.route('**api.codetabs.com**', (route) => route.abort('failed'));
@@ -220,6 +223,19 @@ check('再読み込み後も再生済みは隠れている', !(await page.textCo
 await page.click('#filter-toggle');
 await page.waitForTimeout(200);
 check('フィルタを戻すと全件表示に戻る', (await page.locator('[data-episode]').count()) === 3);
+
+// --- 同一オリジンの中継が使える場合はそれで取得できる
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
+await page.unroute('**api.allorigins.win**');
+await page.route('**api.allorigins.win**', (route) => route.abort('failed'));
+await page.click('#show-refresh');
+await page.waitForTimeout(1200);
+check('同一オリジンの中継でフィードを取得できる', (await page.locator('[data-episode]').count()) === 3);
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => route.abort('failed'));
+await page.unroute('**api.allorigins.win**');
+await page.route('**api.allorigins.win**', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
 
 // --- 配信元がCORSを許可している場合はプロキシを通さず直接取得する
 await page.unroute('https://feed.test/rss.xml');

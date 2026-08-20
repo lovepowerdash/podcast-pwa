@@ -1,6 +1,0 @@
-# Cloudflare Workers のビルド設定。
-# ダッシュボードの Workers & Pages → Create → Connect GitHub でこのリポジトリを選び、
-# ルートディレクトリに `worker` を指定すれば、push のたびに自動でデプロイされる。
-name = "podcast-proxy"
-main = "cors-proxy.js"
-compatibility_date = "2026-08-01"

@@ -4,19 +4,16 @@
 
 // ホーム画面の下部に表示する版。端末に新しいコードが届いているかを目視で確かめるためのもの。
 // 変更を配信するたびに更新する。
-export const APP_VERSION = '2026-08-20 #9';
+export const APP_VERSION = '2026-08-20 #11';
 
-// RSSフィードの取得経路。上から順に試し、失敗したら次へフォールバックする。
+// RSSフィードの取得経路。全経路を同時に投げ、最初に成功したものを採用する。
 //
-// 公開CORSプロキシは「無料・登録不要」の代わりにレスポンスサイズ上限とレート制限がある。
-// エピソード数の多い番組はRSSが数MBになり、上限に当たって 413 や切断で失敗する。
-// 安定して使いたい場合は自前のCloudflare Workerを立てて FEED_SOURCES の先頭に置くこと
-// （worker/cors-proxy.js とREADMEの手順を参照）。
+// 公開CORSプロキシは「無料・登録不要」の代わりにレスポンスサイズ上限とレート制限があり、
+// エピソード数の多い番組（RSSが数MB）では 413 や切断で失敗する。そのため本命は
+// アプリと同じオリジンで動く中継（functions/api/feed.js）で、公開プロキシは保険。
 export const FEED_SOURCES = [
-  // 自前のCloudflare Worker。サイズ上限もレート制限も無いのでこれが本命。
-  // 端末ごとの設定ではなくここに書いてあるので、アプリを開いた全員がそのまま使える。
-  // 引っ越す場合はこの1行を書き換える（worker/cors-proxy.js を参照）。
-  { name: 'worker', build: (url) => `https://podcast-proxy.lovepowerdash.workers.dev/?url=${encodeURIComponent(url)}` },
+  // 同一オリジンの中継。相対パスなのでホスト名を持たず、配布先を変えても書き換え不要。
+  { name: '同一オリジン中継', build: (url) => `./api/feed?url=${encodeURIComponent(url)}` },
 
   // 配信元がCORSを許可しているフィードはプロキシ不要。まずそのまま試す（失敗しても数百msで次へ進む）
   { name: '直接取得', build: (url) => url },

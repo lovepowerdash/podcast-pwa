@@ -1,7 +1,7 @@
 # Podcast PWA
 
 個人利用向けのポッドキャスト再生 PWA。ビルド不要の静的サイト（素の HTML / CSS / ES Modules）で、
-GitHub Pages などの無料枠にそのまま置いて iPhone のホーム画面から使うことを想定している。
+Cloudflare Pages の無料枠にそのまま置いて iPhone のホーム画面から使うことを想定している。
 
 ## 実装済みの要件
 
@@ -29,25 +29,34 @@ GitHub Pages などの無料枠にそのまま置いて iPhone のホーム画�
 
 ## 現在の稼働構成
 
-- 公開 URL: https://lovepowerdash.github.io/podcast-pwa/ （GitHub Pages / `main` の root）
-- フィード取得: `https://podcast-proxy.lovepowerdash.workers.dev`（Cloudflare Workers 無料枠）
-  - デプロイ済みの内容は `worker/cors-proxy.js` と同一。Worker を変更したくなったら、
-    Cloudflare の Connect GitHub で `worker` ディレクトリを繋げば以後は push だけで同期される
+- ホスティング: Cloudflare Pages（無料枠）。URL にアカウント名が入らない
+- フィード取得: `functions/api/feed.js`（Pages Functions）。アプリと同じオリジンで動くため
+  CORS の問題が起きず、公開プロキシのようなサイズ上限もない。アプリからは `./api/feed?url=`
+  という相対パスで呼ぶので、コードのどこにもホスト名が入らない
 - iPhone 実機で確認済み: フィード取得 / 並び替え / 再生 / 既読・再生位置の保存 /
-  バックグラウンド再生 / ロック画面操作 / ホーム画面に追加しての standalone 起動
+  連続再生 / バックグラウンド再生 / ロック画面操作 / ホーム画面に追加しての standalone 起動
 
-## デプロイ（GitHub Pages）
+## デプロイ（Cloudflare Pages）
 
-ビルド不要。リポジトリ直下がそのまま公開ディレクトリになる。
+ビルド不要。リポジトリ直下がそのまま公開ディレクトリで、`functions/` は自動で認識される。
 
-1. GitHub の **Settings → Pages** で Source に `Deploy from a branch` / `main` / `/ (root)` を選ぶ
-2. `https://<ユーザー名>.github.io/podcast-pwa/` が公開 URL
-3. iPhone の Safari で開き、共有 → **ホーム画面に追加**（PWA として standalone 起動する）
+1. https://dash.cloudflare.com/ → Workers & Pages → Create → **Pages** → Connect to Git
+2. リポジトリを選ぶ（非公開リポジトリでも無料枠でビルドできる）
+3. ビルド設定
+   - Framework preset: **None**
+   - Build command: **空欄**
+   - Build output directory: **`/`**
+4. Save and Deploy → `https://<プロジェクト名>.pages.dev` が公開 URL
+5. iPhone の Safari で開き、共有 → **ホーム画面に追加**（PWA として standalone 起動する）
+
+push するたびに自動で再デプロイされる。
 
 Service Worker と Media Session は HTTPS でのみ動く。ローカル確認は `localhost` なら可。
+ただし `./api/feed` は Pages Functions なので、素の静的サーバーでは動かない
+（`npx wrangler pages dev .` を使うか、公開プロキシへのフォールバックで確認する）。
 
 ```bash
-npm start   # http://localhost:8080 で配信
+npm start   # http://localhost:8080 で配信（中継は動かない）
 ```
 
 ## 設定の差し替え
@@ -55,43 +64,15 @@ npm start   # http://localhost:8080 で配信
 外部サービスに依存する値は `js/config.js` の 1 箇所に集約してある。
 
 - `FEED_SOURCES` — RSS の取得経路。全経路を同時に投げ、最初に成功したものを採用する。
-  「直接取得」＋公開 CORS プロキシ 3 種。動かなくなったらここを書き換える
+  同一オリジンの中継 → 直接取得 → 公開 CORS プロキシ 3 種。公開プロキシは中継が使えない
+  ときの保険で、エピソード数の多い番組（RSS が数 MB）ではサイズ上限に当たって失敗する
 - `FEED_FETCH_TIMEOUT_MS` — 1 経路あたりの上限時間（既定 40 秒）。同時に投げるのでこれが最大待ち時間になる
 - `FEED_CACHE_TTL_SEC` — フィードキャッシュの有効期限（既定 900 秒 = 15 分）
-- ホーム画面左上の歯車から自前プロキシの URL を入れると、その端末だけ最優先で使える
+- `APP_VERSION` — ホーム画面下部に出る版。配信するたびに更新する
+- ホーム画面左上の歯車から中継の URL を入れると、その端末だけ最優先で使える
   （動作確認用の逃げ道。恒久的な設定は `FEED_SOURCES` 側で行う）
-- `SEEK_SECONDS`、`PLAYBACK_RATES`、`READ_RATIO`（既読とみなす再生割合）
 
 iTunes Search API は CORS 許可済みのためプロキシを通さず直接 fetch している。
-
-### 自前の CORS プロキシを立てる（推奨）
-
-無料の公開 CORS プロキシはレスポンスサイズ上限とレート制限がある。エピソード数の多い番組は
-RSS が数 MB になるため、`413 Payload Too Large` やタイムアウトで取得に失敗する。
-実際にエピソード数の多い番組（400 回超・RSS が数 MB）で、iPhone 実機から全経路が失敗することを
-確認している（`corsproxy.io` は 413、`allorigins` と `codetabs` はタイムアウト、直接取得は CORS 拒否）。
-
-`worker/cors-proxy.js` を Cloudflare Workers（無料枠）に置けばこの制限が無くなる。
-
-1. https://dash.cloudflare.com/ → Workers & Pages → Create → Start with Hello World → Deploy
-2. 作成した Worker の Edit code を開き、`worker/cors-proxy.js` の中身を貼り付けて Deploy
-   （ブラウザでコードを編集したくない場合は、Create → **Connect GitHub** でこのリポジトリを選び、
-   ルートディレクトリに `worker` を指定する。`worker/wrangler.toml` を読んで自動でデプロイされ、
-   以後は push するだけで更新される）
-
-3. 発行された `https://<名前>.<アカウント>.workers.dev` を控える
-4. `js/config.js` の `FEED_SOURCES` 先頭にある `worker` の URL を自分のものに書き換える
-   （ここに書けば全端末・全利用者に効く。既定では `podcast-proxy.lovepowerdash.workers.dev`）
-
-```js
-{ name: 'worker', build: (url) => `https://<名前>.workers.dev/?url=${encodeURIComponent(url)}` },
-```
-
-再デプロイせずにその端末だけで試したい場合は、アプリのホーム画面左上の歯車から
-`https://<名前>.workers.dev/?url=` を入力する（localStorage に保存され `FEED_SOURCES` より優先される）。
-
-`worker/cors-proxy.js` の `ALLOWED_ORIGIN` を自分の公開 URL にすること（第三者に踏み台として
-使われないため）。レスポンスはストリームのまま中継するのでフィードのサイズ制限はない。
 
 ## データ構造（IndexedDB: `podcast_pwa_db`）
 
@@ -115,8 +96,7 @@ js/player.js          <audio> と Media Session
 js/ui.js              表示ヘルパー
 js/app.js             ルーティングと各画面の描画
 sw.js                 アプリシェルのみキャッシュ（音声・フィードはキャッシュしない）
-worker/cors-proxy.js  自前CORSプロキシ（Cloudflare Workers 用・任意）
-worker/wrangler.toml  上記をGitHub連携で自動デプロイするための設定
+functions/api/feed.js RSSフィードの中継（Cloudflare Pages Functions）
 test/smoke.mjs        Playwright によるエンドツーエンドのスモークテスト
 ```
 
@@ -129,7 +109,7 @@ test/smoke.mjs        Playwright によるエンドツーエンドのスモー�
 - その版をタップすると、再生まわりのイベント記録（`play` / `pause` / `ended` /
   `advance` / `play-rejected` など、時刻と再生位置つき）を表示する
 - Service Worker は同一オリジンの取得を `cache: 'no-cache'` で行う。
-  GitHub Pages が付ける `max-age` により、素直に取得すると十数分ぶん古いコードが
+  ホスティングが付ける `max-age` により、素直に取得すると十数分ぶん古いコードが
   返って原因の切り分けができなくなるため
 
 ## テスト

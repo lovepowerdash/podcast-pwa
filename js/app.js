@@ -95,7 +95,7 @@ $('home-settings').addEventListener('click', () => {
   const current = localStorage.getItem(CUSTOM_PROXY_KEY) || '';
   const input = prompt(
     'フィード取得に使う自前プロキシのURLを入力してください。\n'
-    + '例: https://xxxx.workers.dev/?url=\n'
+    + '例: https://example.com/proxy?url=\n'
     + '空欄にすると既定のプロキシに戻ります。',
     current,
   );
