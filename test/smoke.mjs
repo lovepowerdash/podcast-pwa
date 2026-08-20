@@ -39,7 +39,15 @@ const server = createServer((req, res) => {
     const body = readFileSync(file);
     res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream' });
     res.end(body);
-  } catch { res.writeHead(404); res.end('nf'); }
+  } catch {
+    // 本番の _redirects と同じ扱い。実体の無いパスは index.html を返す
+    if (!extname(p)) {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(readFileSync(join(ROOT, 'index.html')));
+      return;
+    }
+    res.writeHead(404); res.end('nf');
+  }
 }).listen(8099);
 
 const fail = [];
@@ -104,7 +112,7 @@ check('ホーム画面から起動していれば案内を出さない',
   !(await page.textContent('#home-list')).includes('ホーム画面に追加すると便利です'));
 
 // --- 検索 → フォロー
-await page.click('a[href="#/search"]');
+await page.click('a[href="/search"]');
 await page.fill('#search-input', 'テスト');
 await page.click('.searchbar__btn');
 await page.waitForSelector('[data-follow]');
@@ -136,7 +144,7 @@ check('並び順が番組ごとに永続化される', (await page.textContent('
 await page.click('[data-episode] >> nth=0');
 await page.waitForSelector('#mini:not([hidden])');
 check('ミニプレイヤーの出現', (await page.textContent('#mini-title')).includes('第1回'));
-check('再生開始後も一覧に留まる', page.url().includes('#/show/'));
+check('再生開始後も一覧に留まる', page.url().includes('/show?feed='));
 await page.waitForFunction(() => document.getElementById('audio').currentTime > 1.5, null, { timeout: 8000 });
 check('音声が進んでいる', await page.evaluate(() => !document.getElementById('audio').paused));
 check('Media Session メタデータ', await page.evaluate(() => navigator.mediaSession?.metadata?.title?.includes('第1回') && navigator.mediaSession.metadata.artist === 'テスト番組'));
@@ -152,7 +160,7 @@ await page.click('#player-rate');
 check('再生速度の切り替え', (await page.textContent('#player-rate')) === '1.25x');
 await page.click('#player-close');
 await page.waitForSelector('#player', { state: 'hidden' });
-check('閉じると元の画面へ戻る', page.url().includes('#/show/'));
+check('閉じると元の画面へ戻る', page.url().includes('/show?feed='));
 
 // --- 永続化
 await page.click('#mini-toggle'); // 一時停止 → 位置を確定保存
@@ -301,7 +309,7 @@ await page.waitForSelector('[data-episode]', { timeout: 10000 });
 check('経路が復活すれば再試行で取得できる', (await page.locator('[data-episode]').count()) === 3);
 
 // --- フォロー中一覧の番組画像
-await page.click('a[href="#/"]');
+await page.click('a[href="/"]');
 await page.waitForSelector('.row__art');
 check('フォロー中一覧に番組画像が出る',
   (await page.getAttribute('.row__art', 'src')) === 'https://art.test/a/200x200bb.jpg',
@@ -332,7 +340,7 @@ await page.click('#version');
 
 // --- 開いたときに、フィードが新しくなっていたときだけ自動で更新する
 const openShowFromHome = async () => {
-  if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="#/"]');
+  if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="/"]');
   await page.waitForSelector('.row__main');
   await page.click('.row__main');
   await page.waitForSelector('[data-episode]');
@@ -411,9 +419,27 @@ check('差分が空なら一覧は変わらない', (await page.locator('[data-e
 await page.unroute('**/api/feed*');
 await page.route('**/api/feed*', (route) => route.abort('failed'));
 
+// --- URLの形と、直接開いたときの挙動
+if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="/"]');
+check('ホームのURLに余計な印が付かない', new URL(page.url()).pathname === '/', page.url());
+await page.click('a[href="/search"]');
+check('画面ごとに普通のパスになる', new URL(page.url()).pathname === '/search', page.url());
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector('#screen-search:not([hidden])');
+check('その画面で再読み込みしても開ける', await page.isVisible('#screen-search'));
+await page.goBack();
+await page.waitForSelector('#screen-home:not([hidden])');
+check('戻る操作で前の画面に戻れる', await page.isVisible('#screen-home'));
+
+// エピソード一覧を直接開く（共有されたURLから来た場合）
+const showUrl = `http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`;
+await page.goto(showUrl, { waitUntil: 'networkidle' });
+await page.waitForSelector('[data-episode]');
+check('エピソード一覧のURLを直接開ける', (await page.locator('[data-episode]').count()) > 0);
+
 // --- 使い方
-if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="#/"]');
-await page.click('a[href="#/help"]');
+if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="/"]');
+await page.click('a[href="/help"]');
 await page.waitForSelector('#help:not([hidden])');
 const helpText = await page.textContent('.help__body');
 check('使い方に主な操作が載っている',
@@ -435,7 +461,7 @@ check('viewport で拡大を禁止している',
 // --- Service Worker / manifest
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));
 const manifest = await (await page.request.get('http://localhost:8099/manifest.webmanifest')).json();
-check('manifest の display=standalone', manifest.display === 'standalone' && manifest.start_url === './');
+check('manifest の display=standalone', manifest.display === 'standalone' && manifest.start_url === '/');
 check('アプリ名が manifest と title で揃っている',
   manifest.name === 'podflow' && (await page.title()) === 'podflow', `${manifest.name} / ${await page.title()}`);
 

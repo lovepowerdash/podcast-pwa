@@ -4,7 +4,7 @@
 
 // ホーム画面の下部に表示する版。端末に新しいコードが届いているかを目視で確かめるためのもの。
 // 変更を配信するたびに更新する。
-export const APP_VERSION = '2026-08-20 #26';
+export const APP_VERSION = '2026-08-20 #27';
 
 // RSSフィードの取得経路。全経路を同時に投げ、最初に成功したものを採用する。
 //
@@ -15,7 +15,7 @@ export const APP_VERSION = '2026-08-20 #26';
 // 更新の有無だけを問い合わせる条件付き取得にも対応しているのはこの経路だけ。
 export const RELAY_SOURCE = {
   name: '同一オリジン中継',
-  build: (url) => `./api/feed?url=${encodeURIComponent(url)}`,
+  build: (url) => `/api/feed?url=${encodeURIComponent(url)}`,
 };
 
 export const FEED_SOURCES = [

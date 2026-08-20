@@ -22,7 +22,7 @@ const show = {
 };
 
 let seeking = false;       // シークバー操作中は再生位置の自動反映を止める
-let lastScreenHash = '#/'; // フルプレイヤーを閉じたときに戻る先
+let lastScreenPath = '/';  // 重ねて出す画面を閉じたときに戻る先
 
 // ---- 画面切り替え ----------------------------------------------------------
 
@@ -42,31 +42,49 @@ function openHelp(open) {
   document.body.classList.toggle('player-open', open);
 }
 
+/** 画面遷移。履歴に積んでから描き直す */
+function navigate(path, { replace = false } = {}) {
+  if (replace) history.replaceState(null, '', path);
+  else history.pushState(null, '', path);
+  route();
+}
+
+// アプリ内のリンクは、ページを読み直さずに画面を切り替える
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('a[href^="/"]');
+  if (!link || link.target || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  event.preventDefault();
+  navigate(link.getAttribute('href'));
+});
+
+window.addEventListener('popstate', route);
+
 function route() {
-  const hash = location.hash || '#/';
+  const path = location.pathname;
+  const params = new URLSearchParams(location.search);
 
   // 使い方は他の画面に重ねて出す。戻る操作でそのまま閉じられる
-  if (hash === '#/help') {
+  if (path === '/help') {
     openFullPlayer(false);
     openHelp(true);
     return;
   }
   openHelp(false);
 
-  if (hash === '#/player') {
-    if (!player.getState().episode) { location.replace(lastScreenHash); return; }
+  if (path === '/player') {
+    if (!player.getState().episode) { navigate(lastScreenPath, { replace: true }); return; }
     openFullPlayer(true);
     renderPlayer(player.getState());
     return;
   }
 
   openFullPlayer(false);
-  lastScreenHash = hash;
+  lastScreenPath = path + location.search;
 
-  if (hash.startsWith('#/show/')) {
+  if (path === '/show') {
     showScreen('show');
-    openShow(decodeURIComponent(hash.slice('#/show/'.length)));
-  } else if (hash === '#/search') {
+    openShow(params.get('feed') || '');
+  } else if (path === '/search') {
     showScreen('search');
     $('search-input').focus({ preventScroll: true });
   } else {
@@ -135,7 +153,7 @@ async function renderHome() {
     list.innerHTML = `
       <div class="empty">
         <p>フォロー中の番組はまだありません。</p>
-        <a class="btn" href="#/search">番組を検索する</a>
+        <a class="btn" href="/search">番組を検索する</a>
       </div>
       <div class="home__bottom">${installTip()}${footer}</div>`;
     return;
@@ -146,7 +164,7 @@ async function renderHome() {
     <div class="row">
       <img class="row__art" src="${escapeHtml(f.artworkUrl || '')}" alt="" loading="lazy"
            onerror="this.removeAttribute('src')">
-      <a class="row__main" href="#/show/${encodeURIComponent(f.feedUrl)}">
+      <a class="row__main" href="/show?feed=${encodeURIComponent(f.feedUrl)}">
         <span class="row__title">${escapeHtml(f.title)}</span>
         <span class="row__meta">${f.sortOrder === 'asc' ? '古い順' : '新しい順'}で表示</span>
       </a>
@@ -280,7 +298,7 @@ function renderEpisodes() {
 
 async function openShow(feedUrl, { force = false } = {}) {
   const follow = await getFollow(feedUrl);
-  if (!follow) { toast('フォローしていない番組です'); location.hash = '#/'; return; }
+  if (!follow) { toast('フォローしていない番組です'); navigate('/', { replace: true }); return; }
 
   show.feedUrl = feedUrl;
   show.title = follow.title;
@@ -518,7 +536,7 @@ $('search-list').addEventListener('click', async (event) => {
   const result = searchResults.find((r) => r.feedUrl === feedUrl);
   await addFollow({ feedUrl, title: result?.title || feedUrl, artworkUrl: result?.artworkUrl || '' });
   // フォロー後はそのままエピソード一覧へ移動する（設計書 8. の未確定事項をここで確定）
-  location.hash = `#/show/${encodeURIComponent(feedUrl)}`;
+  navigate(`/show?feed=${encodeURIComponent(feedUrl)}`);
 });
 
 // ---- プレイヤー（ミニ / フル） ----------------------------------------------
@@ -563,7 +581,7 @@ $('player-back').addEventListener('click', () => player.seekBy(-15));
 $('player-fwd').addEventListener('click', () => player.seekBy(15));
 $('player-rate').addEventListener('click', () => player.cycleRate());
 $('player-close').addEventListener('click', () => {
-  if (location.hash === '#/player') history.back();
+  if (location.pathname === '/player') history.back();
   else openFullPlayer(false);
 });
 
@@ -598,7 +616,6 @@ player.subscribe(async (state) => {
 });
 
 // 再生位置の保存はプレイヤー側で行われるため、一覧の進捗表示は画面復帰時に取り直す
-window.addEventListener('hashchange', route);
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible' && show.feedUrl && !$('screen-show').hidden) {
     show.states = await episodeStateMap(show.feedUrl);

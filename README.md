@@ -24,11 +24,17 @@ Cloudflare Pages の無料枠にそのまま置いて iPhone のホーム画面�
 ## 画面
 
 ```
-ホーム ⇄ 番組検索
-ホーム → エピソード一覧（← で戻る）
-ホーム → 使い方（左上の ? から。他の画面に重ねて表示）
-ミニプレイヤーは全画面共通で下部固定 → タップでフルプレイヤー
+/                     ホーム（フォロー中の番組）
+/search               番組検索
+/show?feed=<フィードURL>  エピソード一覧
+/player               フルプレイヤー（他の画面に重ねて表示）
+/help                 使い方（他の画面に重ねて表示）
 ```
+
+画面遷移は History API で行い、`#` は使わない。実体の無いパスは `_redirects` の
+`/* /index.html 200` で `index.html` に落とすため、どの画面で再読み込みしても開ける。
+Functions は `_routes.json` で `/api/*` だけに限定してあり、この書き換えの影響を受けない。
+ミニプレイヤーは全画面共通で下部に固定し、タップでフルプレイヤーへ。
 
 使い方（`index.html` の `#help`）は機能を変えたら追従させること。
 
@@ -121,6 +127,8 @@ js/app.js             ルーティングと各画面の描画
 sw.js                 アプリシェルのみキャッシュ（音声・フィードはキャッシュしない）
 functions/api/feed.js RSSフィードの中継（Cloudflare Pages Functions）
 icons/source.png      アイコンの元画像（1024）。各サイズはここから生成する
+_redirects            実体の無いパスをindex.htmlへ落とす（画面ごとの再読み込み対策）
+_routes.json          Functionsを/api/*だけに限定する
 test/smoke.mjs        Playwright によるエンドツーエンドのスモークテスト
 ```
 

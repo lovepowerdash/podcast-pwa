@@ -6,27 +6,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#12111a">
 <meta name="description" content="個人利用向けポッドキャスト再生PWA">
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" href="./icons/icon-192.png">
-<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="podflow">
-<link rel="stylesheet" href="./css/style.css">
+<link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
 
 <!-- ===== ホーム（フォロー中番組一覧） ===== -->
 <section class="screen" id="screen-home" hidden>
   <header class="appbar">
-    <a class="iconbtn" href="#/help" aria-label="使い方">
+    <a class="iconbtn" href="/help" aria-label="使い方">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.9c-.6.2-.9.7-.9 1.3v.4"/><circle cx="12" cy="17" r="1.1" fill="currentColor" stroke="none"/></svg>
     </a>
     <h1 class="appbar__title brand">
       <span class="brand__bars" aria-hidden="true"><i></i><i></i><i></i></span>
       <span class="brand__name">podflow</span>
     </h1>
-    <a class="iconbtn" href="#/search" aria-label="番組を検索">
+    <a class="iconbtn" href="/search" aria-label="番組を検索">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><line x1="16" y1="16" x2="21" y2="21"/></svg>
     </a>
   </header>
@@ -36,7 +36,7 @@
 <!-- ===== エピソード一覧 ===== -->
 <section class="screen" id="screen-show" hidden>
   <header class="appbar">
-    <a class="iconbtn" href="#/" aria-label="ホームへ戻る">
+    <a class="iconbtn" href="/" aria-label="ホームへ戻る">
       <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 4 7 12 15 20"/></svg>
     </a>
     <h1 class="appbar__title" id="show-title">番組</h1>
@@ -63,7 +63,7 @@
 <!-- ===== 番組検索 ===== -->
 <section class="screen" id="screen-search" hidden>
   <header class="appbar">
-    <a class="iconbtn" href="#/" aria-label="ホームへ戻る">
+    <a class="iconbtn" href="/" aria-label="ホームへ戻る">
       <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 4 7 12 15 20"/></svg>
     </a>
     <h1 class="appbar__title">番組を検索</h1>
@@ -78,7 +78,7 @@
 
 <!-- ===== ミニプレイヤー（常時固定） ===== -->
 <div class="mini" id="mini" hidden>
-  <a class="mini__tap" href="#/player" aria-label="プレイヤーを開く">
+  <a class="mini__tap" href="/player" aria-label="プレイヤーを開く">
     <span class="mini__title" id="mini-title"></span>
     <span class="mini__show" id="mini-show"></span>
     <span class="mini__bar"><i id="mini-progress"></i></span>
@@ -120,7 +120,7 @@
 <!-- 使い方 -->
 <section class="help" id="help" hidden>
   <header class="appbar">
-    <a class="iconbtn" href="#/" id="help-close" aria-label="閉じる">
+    <a class="iconbtn" href="/" id="help-close" aria-label="閉じる">
       <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
     </a>
     <h1 class="appbar__title">使い方</h1>
@@ -190,7 +190,7 @@
       await Promise.all(keys.filter((k) => k !== 'podcast-pwa-v2').map((k) => caches.delete(k)));
     }
   } catch { /* キャッシュを触れない環境でも読み込みは続行する */ }
-  await import('./js/app.js');
+  await import('/js/app.js');
 })();
 </script>
 </body>
