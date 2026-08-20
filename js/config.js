@@ -4,7 +4,7 @@
 
 // ホーム画面の下部に表示する版。端末に新しいコードが届いているかを目視で確かめるためのもの。
 // 変更を配信するたびに更新する。
-export const APP_VERSION = '2026-08-20 #18';
+export const APP_VERSION = '2026-08-20 #19';
 
 // RSSフィードの取得経路。全経路を同時に投げ、最初に成功したものを採用する。
 //
@@ -33,25 +33,6 @@ export const FEED_SOURCES = [
 // 全経路を同時に投げるので、これがそのまま最大待ち時間になる。
 // 数MBのフィードをモバイル回線で受け切るには短すぎないほうがよい。
 export const FEED_FETCH_TIMEOUT_MS = 40000;
-
-// ソースを書き換えずに端末側でプロキシを差し替えるための保存キー。
-// ホーム画面の歯車から入力でき、設定されていれば FEED_SOURCES より優先される。
-export const CUSTOM_PROXY_KEY = 'feedProxyTemplate';
-
-export function customFeedSource() {
-  let raw = '';
-  try {
-    raw = (localStorage.getItem(CUSTOM_PROXY_KEY) || '').trim();
-  } catch { return null; } // プライベートブラウズ等でlocalStorageが使えない場合
-  if (!raw) return null;
-  return {
-    name: '自前プロキシ',
-    // `...?url={url}` のようなテンプレートでも、末尾に繋ぐだけの形でも受け付ける
-    build: (url) => (raw.includes('{url}')
-      ? raw.replace('{url}', encodeURIComponent(url))
-      : raw + encodeURIComponent(url)),
-  };
-}
 
 // iTunes Search APIはCORS許可済みなのでプロキシを通さず直接fetchする。
 export const ITUNES_SEARCH_ENDPOINT = 'https://itunes.apple.com/search';

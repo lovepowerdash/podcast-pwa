@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 import {
   FEED_SOURCES, RELAY_SOURCE, FEED_FETCH_TIMEOUT_MS, ITUNES_SEARCH_ENDPOINT,
-  ITUNES_COUNTRY, ITUNES_LIMIT, FEED_CACHE_TTL_SEC, customFeedSource,
+  ITUNES_COUNTRY, ITUNES_LIMIT, FEED_CACHE_TTL_SEC,
 } from './config.js';
 import { getFeedCache, putFeedCache } from './db.js';
 
@@ -224,9 +224,8 @@ async function fetchFromSource(source, feedUrl) {
  * 数MBのフィードでは1経路あたり数十秒かかることがあり、直列に試すと待ち時間が積み上がるため。
  */
 async function fetchFeedText(feedUrl) {
-  const sources = [customFeedSource(), ...FEED_SOURCES].filter(Boolean);
   try {
-    return await Promise.any(sources.map((source) => fetchFromSource(source, feedUrl)));
+    return await Promise.any(FEED_SOURCES.map((source) => fetchFromSource(source, feedUrl)));
   } catch (aggregate) {
     const errors = (aggregate.errors || [aggregate]).map((err) => err.message);
     throw new Error(`フィードを取得できませんでした（${errors.join(' / ')}）`);

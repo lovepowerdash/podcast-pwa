@@ -8,7 +8,7 @@ import {
   putEpisodeStates, newEpisodeState,
 } from './db.js';
 import * as player from './player.js';
-import { CUSTOM_PROXY_KEY, APP_VERSION } from './config.js';
+import { APP_VERSION } from './config.js';
 import { $, escapeHtml, formatTime, formatDuration, formatDate, toast, spinner } from './ui.js';
 
 // 現在のエピソード一覧画面が扱っている番組の状態
@@ -115,27 +115,6 @@ async function backfillArtwork(follows) {
   }
   if (found && !$('screen-home').hidden) renderHome();
 }
-
-// 公開プロキシが使えない番組向けに、自前プロキシのURLを端末側で差し替えられるようにする。
-// （ソースを書き換えて再デプロイしなくても試せるようにするための逃げ道）
-$('home-settings').addEventListener('click', () => {
-  const current = localStorage.getItem(CUSTOM_PROXY_KEY) || '';
-  const input = prompt(
-    'フィード取得に使う自前プロキシのURLを入力してください。\n'
-    + '例: https://example.com/proxy?url=\n'
-    + '空欄にすると既定のプロキシに戻ります。',
-    current,
-  );
-  if (input === null) return;
-  const value = input.trim();
-  if (value) {
-    localStorage.setItem(CUSTOM_PROXY_KEY, value);
-    toast('自前プロキシを設定しました');
-  } else {
-    localStorage.removeItem(CUSTOM_PROXY_KEY);
-    toast('既定のプロキシに戻しました');
-  }
-});
 
 $('home-list').addEventListener('click', async (event) => {
   // 実機で何が起きたかを確認するための記録（開発者コンソールが使えないため）

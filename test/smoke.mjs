@@ -273,12 +273,12 @@ await showMenu(0);
 await page.waitForSelector('#episode-retry');
 check('全経路失敗時に理由と再試行ボタンを表示', (await page.textContent('#episode-list')).includes('フィードを取得できませんでした'));
 
-// --- 自前プロキシの設定が最優先される（他の経路は全て失敗させたまま）
-await page.route('https://my-proxy.test/**', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
-await page.evaluate(() => localStorage.setItem('feedProxyTemplate', 'https://my-proxy.test/?url='));
+// --- 経路が1つでも復活すれば、再試行で取得できる
+await page.unroute('**api.allorigins.win**');
+await page.route('**api.allorigins.win**', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
 await page.click('#episode-retry');
 await page.waitForSelector('[data-episode]', { timeout: 10000 });
-check('自前プロキシの設定が最優先で使われる', (await page.locator('[data-episode]').count()) === 3);
+check('経路が復活すれば再試行で取得できる', (await page.locator('[data-episode]').count()) === 3);
 
 // --- フォロー中一覧の番組画像
 await page.click('a[href="#/"]');
