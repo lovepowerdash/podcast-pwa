@@ -21,8 +21,8 @@ html, body {
   margin: 0;
   height: 100%;
   overscroll-behavior-y: none;
-  /* iOSのダブルタップ拡大を止める。ピンチによる拡大は残るので手動でズームはできる */
-  touch-action: manipulation;
+  /* ダブルタップとピンチによる拡大を止める。縦スクロールだけ許可する */
+  touch-action: pan-y;
 }
 
 body {
@@ -291,7 +291,12 @@ button, input { font: inherit; color: inherit; }
 }
 .player__show { margin: 0; font-size: 13px; color: var(--text-dim); }
 .player__title { margin: 0 0 12px; font-size: 20px; line-height: 1.4; }
-.player__seek { width: 100%; accent-color: var(--accent); }
+.player__seek {
+  width: 100%;
+  accent-color: var(--accent);
+  /* 親が pan-y なので、横方向にドラッグするシークバーだけは自前で操作を受け取る */
+  touch-action: none;
+}
 .player__times { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); }
 .player__controls { display: flex; align-items: center; justify-content: center; gap: 28px; margin-top: 16px; }
 .ctrl {

@@ -473,6 +473,12 @@ document.addEventListener('visibilitychange', async () => {
 
 // ---- 起動 -------------------------------------------------------------------
 
+// 拡大の抑止。CSSの touch-action と viewport の指定だけでは Safari が拡大することが
+// あるため、iOS 独自のピンチ操作イベントも止めておく。
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+}
+
 if ('serviceWorker' in navigator) {
   // すでに旧Service Workerに制御されている場合、新しいものが引き継いだ時点で
   // 読み込み済みの古いコードを捨てるために一度だけ再読み込みする

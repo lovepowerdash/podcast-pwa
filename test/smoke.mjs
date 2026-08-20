@@ -254,9 +254,13 @@ page.once('dialog', (d) => d.dismiss());
 await page.click('#version');
 
 // --- ダブルタップ拡大の抑止
-check('touch-action で二度押しの拡大を止めている',
-  await page.evaluate(() => getComputedStyle(document.body).touchAction === 'manipulation'),
+check('touch-action で拡大を止めている（縦スクロールのみ許可）',
+  await page.evaluate(() => getComputedStyle(document.body).touchAction === 'pan-y'),
   await page.evaluate(() => getComputedStyle(document.body).touchAction));
+check('シークバーは自前で操作を受け取る',
+  await page.evaluate(() => getComputedStyle(document.getElementById('player-seek')).touchAction === 'none'));
+check('viewport で拡大を禁止している',
+  (await page.getAttribute('meta[name=viewport]', 'content')).includes('user-scalable=no'));
 
 // --- Service Worker / manifest
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));

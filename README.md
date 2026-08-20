@@ -167,8 +167,11 @@ npm test
   （二重に送らないよう、送り済みの episodeId を覚えておく）
 - それでも自動再生が拒否された場合は理由をトーストで出す（黙って止まらないようにするため）。
   メタデータは次の回のままなので、ロック画面の再生ボタンでそのまま続けられる
-- ダブルタップの拡大は `touch-action: manipulation` で止めている。
-  `user-scalable=no` は iOS 10 以降の Safari が無視するうえ、ピンチ操作まで塞いでしまう
+- 拡大は3つ重ねて止めている。単独ではどれも取りこぼすため。
+  1. `touch-action: pan-y`（縦スクロールだけ許可し、ダブルタップとピンチを塞ぐ）
+  2. viewport の `maximum-scale=1, user-scalable=no`（Safari は無視するが standalone 起動では効く）
+  3. iOS 独自の `gesturestart` などを `preventDefault` する
+  横方向にドラッグするシークバーだけは `touch-action: none` にして自前で操作を受け取る
 - iOS 17.4 以降、EU 域内では PWA の standalone 起動が廃止されている（日本は対象外）
 - Service Worker / IndexedDB のストレージは Chrome より制限が厳しく、長期間未使用だと破棄されうる
 - Service Worker はネットワーク優先にしてある。加えて `index.html` の先頭で現行以外の
