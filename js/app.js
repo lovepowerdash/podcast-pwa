@@ -362,8 +362,15 @@ $('player-seek').addEventListener('change', () => {
 
 let lastPlayingId = null;
 let lastReadRevision = 0;
+let lastAutoAdvanceBlocked = null;
 player.subscribe(async (state) => {
   renderPlayer(state);
+
+  // 自動送りがブラウザに拒否されたときは黙って止まらず、理由を知らせる
+  if (state.autoAdvanceBlocked && state.autoAdvanceBlocked !== lastAutoAdvanceBlocked) {
+    toast(`次の回を自動再生できませんでした (${state.autoAdvanceBlocked})。再生ボタンで続けられます`);
+  }
+  lastAutoAdvanceBlocked = state.autoAdvanceBlocked;
   // 再生中エピソードが変わったとき（自動送りを含む）と、既読が書き込まれたときに
   // 一覧を読み直す。フィルタ表示が既読の反映を取りこぼさないようにするため。
   const id = state.episode?.episodeId || null;

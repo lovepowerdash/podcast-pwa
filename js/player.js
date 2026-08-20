@@ -13,6 +13,8 @@ let queue = [];          // 連続再生の順番。一覧に表示されてい�
 let pendingSeek = 0;     // メタデータ読み込み後に適用する再生位置
 let lastSaved = 0;
 let readRevision = 0;    // 既読フラグを書き込むたびに増える。一覧側の読み直しの合図
+let autoAdvancing = false;   // いま自動送りの最中か
+let autoAdvanceBlocked = null; // 自動送りがブラウザに拒否された理由（UIで知らせる）
 
 export function subscribe(fn) {
   listeners.add(fn);
@@ -32,6 +34,7 @@ export function getState() {
     duration: Number.isFinite(audio.duration) ? audio.duration : (current?.duration || 0),
     rate: audio.playbackRate,
     readRevision,
+    autoAdvanceBlocked,
   };
 }
 
@@ -86,6 +89,19 @@ function updatePlaybackState() {
   } catch { /* 対応していない環境では黙って無視する */ }
 }
 
+/** キュー内で現在の前後にあるエピソードを返す */
+function neighbour(offset) {
+  if (!current) return null;
+  const index = queue.findIndex((ep) => ep.episodeId === current.episodeId);
+  return index >= 0 ? (queue[index + offset] || null) : null;
+}
+
+/** ロック画面のスキップボタンから前後の回へ移動する */
+function jump(offset) {
+  const target = neighbour(offset);
+  if (target) play(target, current.showTitle, target.resumeAt || 0);
+}
+
 function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
   const handlers = {
@@ -94,6 +110,8 @@ function setupMediaSession() {
     seekbackward: (details) => seekBy(-(details?.seekOffset || SEEK_SECONDS)),
     seekforward: (details) => seekBy(details?.seekOffset || SEEK_SECONDS),
     seekto: (details) => { if (details?.seekTime != null) seekTo(details.seekTime); },
+    nexttrack: () => jump(1),
+    previoustrack: () => jump(-1),
   };
   for (const [action, handler] of Object.entries(handlers)) {
     try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* 未対応アクション */ }
@@ -117,12 +135,25 @@ export function play(episode, showTitle, startAt = 0, nextQueue = null) {
 
   if (!isSame) {
     pendingSeek = startAt > 0 ? startAt : 0;
+    // iOS では load() を呼ぶとユーザー操作で得た再生許可が外れ、自動送りの play() が
+    // 拒否されることがある。src を代入すれば読み込みは始まるので load() は呼ばない。
     audio.src = episode.audioUrl;
-    audio.load();
     updateMetadata();
   }
+
+  const auto = autoAdvancing;
   const promise = audio.play();
-  if (promise) promise.catch(() => emit());
+  if (promise) {
+    promise.then(
+      () => { if (auto) { autoAdvanceBlocked = null; emit(); } },
+      (err) => {
+        // 自動送りが拒否された場合は黙って止まらず、理由を画面に出す。
+        // メタデータは次の回のままなので、ロック画面の再生ボタンで続きから再開できる。
+        if (auto) autoAdvanceBlocked = err?.name || 'PlaybackError';
+        emit();
+      },
+    );
+  }
   emit();
   return promise;
 }
@@ -183,10 +214,14 @@ audio.addEventListener('ended', () => {
 
   // 次の回へ自動で送る。ここは再生セッションが続いている間の同期処理なので、
   // DBの読み取りを待たずに queue に埋めておいた resumeAt を使う。
-  const index = finished ? queue.findIndex((ep) => ep.episodeId === finished.episodeId) : -1;
-  const next = index >= 0 ? queue[index + 1] : null;
+  const next = neighbour(1);
   if (next) {
-    play(next, finished.showTitle, next.resumeAt || 0);
+    autoAdvancing = true;
+    try {
+      play(next, finished.showTitle, next.resumeAt || 0);
+    } finally {
+      autoAdvancing = false;
+    }
     return;
   }
   updatePlaybackState();
