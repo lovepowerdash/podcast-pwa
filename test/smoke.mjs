@@ -282,6 +282,8 @@ check('viewport で拡大を禁止している',
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));
 const manifest = await (await page.request.get('http://localhost:8099/manifest.webmanifest')).json();
 check('manifest の display=standalone', manifest.display === 'standalone' && manifest.start_url === './');
+check('アプリ名が manifest と title で揃っている',
+  manifest.name === 'みみばこ' && (await page.title()) === 'みみばこ', `${manifest.name} / ${await page.title()}`);
 
 await browser.close();
 server.close();

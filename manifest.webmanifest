@@ -1,7 +1,7 @@
 {
-  "name": "Podcast",
-  "short_name": "Podcast",
-  "description": "個人利用向けポッドキャスト再生PWA",
+  "name": "みみばこ",
+  "short_name": "みみばこ",
+  "description": "個人利用向けのポッドキャスト再生アプリ",
   "lang": "ja",
   "start_url": "./",
   "scope": "./",
