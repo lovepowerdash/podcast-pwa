@@ -5,7 +5,8 @@ import { searchPodcasts, fetchFeed, revalidateFeed, newestPubDate } from './api.
 import {
   listFollows, getFollow, addFollow, removeFollow,
   setSortOrder, setHideRead, setArtwork, episodeStateMap, setEpisodesRead,
-  putEpisodeStates, newEpisodeState, getFeedCache, setFollowTitle, setLatestPubDate,
+  putEpisodeStates, newEpisodeState, getFeedCache, setFollowTitle, setFeedSummary,
+  countReadEpisodes,
 } from './db.js';
 import * as player from './player.js';
 import { APP_VERSION } from './config.js';
@@ -148,7 +149,7 @@ function installTip() {
 }
 
 /**
- * 番組行に添える文。並び順と、フィードの更新日（一番新しい回の公開日）を並べる。
+ * 番組行の1行目。並び順と、フィードの更新日（一番新しい回の公開日）を並べる。
  * 更新が新しいことを強調はしない。どの番組も同じ見た目で日付だけを置き、
  * 目立たせるかどうかの判断は見る側に任せる。
  */
@@ -159,21 +160,36 @@ function followMeta(follow) {
   return [order, updated].filter(Boolean).join(' ・ ');
 }
 
-// 更新日を持っていないフォロー（この機能より前に追加したもの）を後から補う。
-// 番組を開けばそのとき入るが、それまでの間も一覧に出せるよう手持ちのキャッシュから拾う。
-const latestPubDateTried = new Set();
+/**
+ * 番組行の2行目。どこまで聴いたか（再生済み / 全件）。
+ * 1行目に足すと幅320pxの端末で折り返すので行を分けている。
+ * 全件がまだ分からない番組（一度も開いていない）では出さない。
+ */
+function followProgress(follow, readCount) {
+  const total = follow.episodeCount || 0;
+  if (total === 0) return '';
+  // 配信が取り下げた回の記録が残っていることがあるので、全件を超えないようにする
+  return `${Math.min(readCount, total)}/${total} 再生済み`;
+}
 
-async function backfillLatestPubDate(follows) {
-  const missing = follows.filter((f) => !f.latestPubDate && !latestPubDateTried.has(f.feedUrl));
+// 更新日と全件数を持っていないフォロー（この機能より前に追加したもの）を後から補う。
+// 番組を開けばそのとき入るが、それまでの間も一覧に出せるよう手持ちのキャッシュから拾う。
+const summaryTried = new Set();
+
+async function backfillFeedSummary(follows) {
+  const missing = follows.filter((f) => !f.latestPubDate && !summaryTried.has(f.feedUrl));
   if (missing.length === 0) return;
 
   let found = false;
   for (const follow of missing) {
-    latestPubDateTried.add(follow.feedUrl);
+    summaryTried.add(follow.feedUrl);
     const cache = await getFeedCache(follow.feedUrl);
-    const latest = newestPubDate(cache?.rawEpisodes);
-    if (!latest) continue; // まだ一度も開いていない番組。開いたときに入る
-    await setLatestPubDate(follow.feedUrl, latest);
+    const episodes = cache?.rawEpisodes || [];
+    if (episodes.length === 0) continue; // まだ一度も開いていない番組。開いたときに入る
+    await setFeedSummary(follow.feedUrl, {
+      latestPubDate: newestPubDate(episodes),
+      episodeCount: episodes.length,
+    });
     found = true;
   }
   if (found && !$('screen-home').hidden) renderHome();
@@ -186,9 +202,13 @@ let homeSignature = null;
 async function renderHome() {
   const list = $('home-list');
   const follows = await listFollows();
+  // 再生済み件数は再生や一括操作で変わるので、控えずに episodes の索引から数える
+  const readCounts = await Promise.all(follows.map((f) => countReadEpisodes(f.feedUrl)));
 
   const signature = JSON.stringify([
-    follows.map((f) => [f.feedUrl, f.title, f.artworkUrl, f.sortOrder, f.latestPubDate]),
+    follows.map((f, i) => [
+      f.feedUrl, f.title, f.artworkUrl, f.sortOrder, f.latestPubDate, f.episodeCount, readCounts[i],
+    ]),
     isStandalone(),
     Boolean(installPrompt),
   ]);
@@ -212,20 +232,22 @@ async function renderHome() {
   }
   list.classList.remove('is-empty');
 
-  list.innerHTML = follows.map((f) => `
+  list.innerHTML = follows.map((f, i) => `
     <div class="row">
       <img class="row__art" src="${escapeHtml(f.artworkUrl || '')}" alt="" loading="lazy"
            onerror="this.removeAttribute('src')">
       <a class="row__main" href="/show?feed=${encodeURIComponent(f.feedUrl)}">
         <span class="row__title">${escapeHtml(f.title)}</span>
         <span class="row__meta">${escapeHtml(followMeta(f))}</span>
+        ${followProgress(f, readCounts[i])
+          ? `<span class="row__meta">${escapeHtml(followProgress(f, readCounts[i]))}</span>` : ''}
       </a>
       <button class="row__remove" type="button" data-unfollow="${escapeHtml(f.feedUrl)}" aria-label="フォローを解除">✕</button>
     </div>`).join('') + footer;
   showScreen('home');
 
   backfillArtwork(follows);
-  backfillLatestPubDate(follows);
+  backfillFeedSummary(follows);
 }
 
 // アートワークURLを持っていないフォロー（この機能より前に追加したもの）を後から補う。
@@ -370,7 +392,7 @@ async function openShow(feedUrl, { force = false } = {}) {
       show.states = states;
       renderEpisodes();
       showScreen('show');
-      rememberLatestPubDate(follow, cache.rawEpisodes);
+      rememberFeedSummary(follow, cache.rawEpisodes);
       // 表示したあとで、裏で更新の有無だけ確かめる
       checkForNewEpisodes(feedUrl, follow);
       return;
@@ -389,7 +411,7 @@ async function openShow(feedUrl, { force = false } = {}) {
     show.episodes = episodes;
     show.states = states;
     await applyFeedTitle(follow, feedTitle);
-    await rememberLatestPubDate(follow, episodes);
+    await rememberFeedSummary(follow, episodes);
     renderEpisodes();
   } catch (err) {
     $('episode-list').innerHTML = `
@@ -415,15 +437,18 @@ async function applyFeedTitle(follow, feedTitle) {
 }
 
 /**
- * フィードの更新日を控えておく。ホームはネットワークに触らないので、
- * 番組を開いて分かった日付を残しておかないと一覧に出せない。
+ * フィードの更新日と全エピソード数を控えておく。ホームはネットワークに触らないので、
+ * 番組を開いて分かった値を残しておかないと一覧に出せない。
  */
-async function rememberLatestPubDate(follow, episodes) {
-  const latest = newestPubDate(episodes);
-  if (!latest || latest === follow.latestPubDate) return;
-  follow.latestPubDate = latest;
+async function rememberFeedSummary(follow, episodes) {
+  const latestPubDate = newestPubDate(episodes);
+  const episodeCount = episodes.length;
+  if (!latestPubDate && episodeCount === 0) return;
+  if (latestPubDate === follow.latestPubDate && episodeCount === follow.episodeCount) return;
+  follow.latestPubDate = latestPubDate;
+  follow.episodeCount = episodeCount;
   try {
-    await setLatestPubDate(follow.feedUrl, latest);
+    await setFeedSummary(follow.feedUrl, { latestPubDate, episodeCount });
   } catch { /* 書けなくても表示は続く。次に開いたときに書き直す */ }
 }
 
@@ -444,7 +469,7 @@ async function checkForNewEpisodes(feedUrl, follow) {
   show.episodes = result.episodes;
   show.states = await episodeStateMap(feedUrl);
   await applyFeedTitle(follow, result.feedTitle);
-  await rememberLatestPubDate(follow, result.episodes);
+  await rememberFeedSummary(follow, result.episodes);
   renderEpisodes();
 }
 

@@ -351,6 +351,10 @@ check('フォロー中一覧にフィードの更新日が出る',
   (await page.textContent('.row__meta')).includes(newestLabel),
   `${await page.textContent('.row__meta')} / ${newestLabel}`);
 
+// 行のテキストは組み立ての改行を含むので、まとめて1行に直してから見る
+const rowText = (await page.textContent('.row')).replace(/\s+/g, ' ').trim();
+check('フォロー中一覧に再生済みの件数が出る', /\d+\/3 再生済み/.test(rowText), rowText);
+
 // 同じ内容なら描き直さない（画像が読み込み直されてちらつくため）
 await page.evaluate(() => { document.querySelector('.row__art').dataset.kept = '1'; });
 await page.click('a[href="/search"]');
