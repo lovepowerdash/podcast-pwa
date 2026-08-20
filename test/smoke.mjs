@@ -344,6 +344,50 @@ check('新しい回があれば自動で取り込む', (await page.locator('[dat
   `${await page.locator('[data-episode]').count()}件`);
 check('新着があったことを知らせる', (await page.textContent('#toast')).includes('新しいエピソードが 1 件'),
   await page.textContent('#toast'));
+// 中継が差分だけを返す場合（増えた回だけ受け取って手持ちに足す）
+const partialItem = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel><title>テスト番組</title>
+    <item>
+      <title>第5回 差分で届いた回</title>
+      <guid>ep-5</guid>
+      <pubDate>Mon, 04 Mar 2024 09:00:00 +0900</pubDate>
+      <itunes:duration>15:00</itunes:duration>
+      <enclosure url="http://localhost:8099/__audio/ep5.wav" type="audio/wav" length="1000"/>
+    </item>
+</channel></rss>`;
+let askedAfter = null;
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => {
+  askedAfter = new URL(route.request().url()).searchParams.get('after');
+  route.fulfill({
+    status: 200,
+    contentType: 'application/xml',
+    headers: { 'x-feed-partial': '1' },
+    body: partialItem,
+  });
+});
+await openShowFromHome();
+await page.waitForFunction(() => document.querySelectorAll('[data-episode]').length === 5, null, { timeout: 8000 }).catch(() => {});
+check('手持ちの最新回を目印として送る', askedAfter === 'ep-4', String(askedAfter));
+check('差分だけ受け取って手持ちに足す', (await page.locator('[data-episode]').count()) === 5,
+  `${await page.locator('[data-episode]').count()}件`);
+check('差分でも新着件数を知らせる', (await page.textContent('#toast')).includes('新しいエピソードが 1 件'),
+  await page.textContent('#toast'));
+
+// 差分が空（新着なし）なら何も起きない
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => route.fulfill({
+  status: 200,
+  contentType: 'application/xml',
+  headers: { 'x-feed-partial': '1' },
+  body: '<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>テスト番組</title></channel></rss>',
+}));
+await openShowFromHome();
+await page.waitForTimeout(900);
+check('差分が空なら一覧は変わらない', (await page.locator('[data-episode]').count()) === 5,
+  `${await page.locator('[data-episode]').count()}件`);
+
 await page.unroute('**/api/feed*');
 await page.route('**/api/feed*', (route) => route.abort('failed'));
 

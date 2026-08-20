@@ -286,7 +286,7 @@ async function checkForNewEpisodes(feedUrl, follow) {
   }
   if (!result.changed || show.feedUrl !== feedUrl) return;
 
-  const added = result.episodes.length - show.episodes.length;
+  const added = result.added ?? (result.episodes.length - show.episodes.length);
   show.episodes = result.episodes;
   show.states = await episodeStateMap(feedUrl);
   await applyFeedTitle(follow, result.feedTitle);

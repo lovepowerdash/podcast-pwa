@@ -92,8 +92,11 @@ function parseFeed(xmlText, feedUrl) {
     if (!audioUrl) continue; // 音声が無いアイテムは一覧に出さない
 
     const guidEl = item.querySelector('guid');
+    const guid = guidEl ? guidEl.textContent.trim() : '';
     episodes.push({
-      episodeId: buildEpisodeId(feedUrl, guidEl ? guidEl.textContent : '', audioUrl),
+      episodeId: buildEpisodeId(feedUrl, guid, audioUrl),
+      // 差分取得のとき「どこまで持っているか」を中継へ伝える目印に使う
+      guid,
       feedUrl,
       title: text(item, 'title') || '(無題)',
       pubDate: Date.parse(text(item, 'pubDate')) || 0,
@@ -147,6 +150,11 @@ export async function revalidateFeed(feedUrl) {
   if (cache?.etag) query.push(`etag=${encodeURIComponent(cache.etag)}`);
   if (cache?.lastModified) query.push(`modified=${encodeURIComponent(cache.lastModified)}`);
 
+  // 手持ちの中で一番新しい回を目印として渡すと、中継がそれより新しい分だけ返す
+  const newest = newestEpisode(cache?.rawEpisodes || []);
+  const marker = newest?.guid || newest?.audioUrl || '';
+  if (marker) query.push(`after=${encodeURIComponent(marker)}`);
+
   let res;
   try {
     res = await fetchWithTimeout(RELAY_SOURCE.build(feedUrl) + (query.length ? `&${query.join('&')}` : ''));
@@ -163,13 +171,34 @@ export async function revalidateFeed(feedUrl) {
 
   if (res.status === 204) return { changed: false }; // 配信元が「変わっていない」と答えた
 
-  const { feedTitle, episodes } = parseFeed(await res.text(), feedUrl);
-  await storeFeed(feedUrl, episodes, {
+  const validators = {
     etag: res.headers.get('x-feed-etag'),
     lastModified: res.headers.get('x-feed-modified'),
-  });
+  };
+  const { feedTitle, episodes } = parseFeed(await res.text(), feedUrl);
+
+  // 差分が返ってきた場合は、手持ちに足す（全体は送られてきていない）
+  if (res.headers.get('x-feed-partial') === '1' && cache) {
+    if (episodes.length === 0) {
+      await storeFeed(feedUrl, cache.rawEpisodes, validators);
+      return { changed: false };
+    }
+    const known = new Set(cache.rawEpisodes.map((ep) => ep.episodeId));
+    const added = episodes.filter((ep) => !known.has(ep.episodeId));
+    const merged = [...added, ...cache.rawEpisodes];
+    await storeFeed(feedUrl, merged, validators);
+    return added.length > 0
+      ? { changed: true, episodes: merged, feedTitle, added: added.length }
+      : { changed: false };
+  }
+
+  await storeFeed(feedUrl, episodes, validators);
   if (cache && sameEpisodes(cache.rawEpisodes, episodes)) return { changed: false };
   return { changed: true, episodes, feedTitle };
+}
+
+function newestEpisode(episodes) {
+  return episodes.reduce((best, ep) => (!best || (ep.pubDate || 0) > (best.pubDate || 0) ? ep : best), null);
 }
 
 async function fetchFromSource(source, feedUrl) {
