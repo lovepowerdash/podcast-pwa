@@ -2,7 +2,7 @@
 // アプリシェルのみをキャッシュする Service Worker。
 // エピソードのダウンロード/オフライン再生は非要件のため、音声とフィードは一切キャッシュしない。
 // ---------------------------------------------------------------------------
-const CACHE = 'podcast-pwa-v4';
+const CACHE = 'podcast-pwa-v5';
 
 const APP_SHELL = [
   './',
@@ -17,6 +17,7 @@ const APP_SHELL = [
   './js/ui.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (event) => {

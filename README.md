@@ -120,6 +120,7 @@ js/ui.js              表示ヘルパー
 js/app.js             ルーティングと各画面の描画
 sw.js                 アプリシェルのみキャッシュ（音声・フィードはキャッシュしない）
 functions/api/feed.js RSSフィードの中継（Cloudflare Pages Functions）
+icons/source.png      アイコンの元画像。各サイズはここから生成する
 test/smoke.mjs        Playwright によるエンドツーエンドのスモークテスト
 ```
 
