@@ -71,6 +71,13 @@ await page.route('**corsproxy.io**', (route) => route.abort('failed'));
 await page.route('https://feed.test/rss.xml', (route) => route.abort('failed'));
 await page.route('**api.allorigins.win**', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
 
+/** 番組の操作メニューから項目を選ぶ（0=最新のエピソードを取得, 1=全て未再生に戻す） */
+const showMenu = async (index) => {
+  await page.click('#show-menu');
+  await page.waitForSelector('#sheet:not([hidden])');
+  await page.click(`#sheet-items button >> nth=${index}`);
+};
+
 const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? ` — ${extra}` : ''}`); if (!ok) fail.push(name); };
 
 await page.goto('http://localhost:8099/', { waitUntil: 'networkidle' });
@@ -186,7 +193,7 @@ await page.click('[data-menu] >> nth=2'); // 昇順の3件目 = 第3回まで
 await page.waitForSelector('#sheet:not([hidden])');
 check('操作メニューに対象の回が出る', (await page.textContent('#sheet-title')).includes('第3回'));
 page.once('dialog', (d) => d.accept());
-await page.click('#sheet-mark');
+await page.click('#sheet-items button >> nth=0');
 await page.waitForTimeout(400);
 check('選ぶとメニューが閉じる', await page.isHidden('#sheet'));
 const marked = await page.evaluate(() => new Promise((resolve) => {
@@ -205,12 +212,12 @@ check('取り消すと元の状態に戻る', (await page.locator('.ep.is-read')
 
 // --- 番組まるごと未再生に戻す
 page.once('dialog', (d) => d.accept());
-await page.click('#show-reset');
+await showMenu(1);
 await page.waitForTimeout(400);
 check('全て未再生に戻す', (await page.locator('.ep.is-read').count()) === 0, `${await page.locator('.ep.is-read').count()}件`);
 check('戻す対象が無ければ何もしない', await (async () => {
   // 確認ダイアログを出さずに通知だけ出すのが期待動作（dialogを待ち受けない）
-  await page.click('#show-reset');
+  await showMenu(1);
   await page.waitForTimeout(300);
   return (await page.textContent('#toast')).includes('戻す回はありません');
 })());
@@ -218,7 +225,7 @@ check('戻す対象が無ければ何もしない', await (async () => {
 await page.click('[data-menu] >> nth=1');
 await page.waitForSelector('#sheet:not([hidden])');
 page.once('dialog', (d) => d.accept());
-await page.click('#sheet-mark');
+await page.click('#sheet-items button >> nth=0');
 await page.waitForTimeout(400);
 
 // --- 再生済みを隠すフィルタ
@@ -240,7 +247,7 @@ await page.unroute('**/api/feed*');
 await page.route('**/api/feed*', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
 await page.unroute('**api.allorigins.win**');
 await page.route('**api.allorigins.win**', (route) => route.abort('failed'));
-await page.click('#show-refresh');
+await showMenu(0);
 await page.waitForTimeout(1200);
 check('同一オリジンの中継でフィードを取得できる', (await page.locator('[data-episode]').count()) === 3);
 await page.unroute('**/api/feed*');
@@ -253,7 +260,7 @@ await page.unroute('https://feed.test/rss.xml');
 await page.route('https://feed.test/rss.xml', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
 await page.unroute('**api.allorigins.win**');
 await page.route('**api.allorigins.win**', (route) => route.abort('failed'));
-await page.click('#show-refresh');
+await showMenu(0);
 await page.waitForTimeout(1200);
 check('CORS許可済みフィードは直接取得できる', (await page.locator('[data-episode]').count()) === 3);
 
@@ -262,7 +269,7 @@ await page.unroute('https://feed.test/rss.xml');
 await page.route('https://feed.test/rss.xml', (route) => route.abort('failed'));
 await page.route('**api.codetabs.com**', (route) => route.abort('failed'));
 await page.route('**corsproxy.io**', (route) => route.abort('failed'));
-await page.click('#show-refresh');
+await showMenu(0);
 await page.waitForSelector('#episode-retry');
 check('全経路失敗時に理由と再試行ボタンを表示', (await page.textContent('#episode-list')).includes('フィードを取得できませんでした'));
 

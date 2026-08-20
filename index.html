@@ -37,11 +37,8 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 4 7 12 15 20"/></svg>
     </a>
     <h1 class="appbar__title" id="show-title">番組</h1>
-    <button class="iconbtn" id="show-reset" type="button" aria-label="この番組を全て未再生に戻す">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="4 5 4 11 10 11"/><path d="M5.6 15a7 7 0 1 0 1.2-7"/></svg>
-    </button>
-    <button class="iconbtn" id="show-refresh" type="button" aria-label="最新のエピソードを取得">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 5 20 11 14 11"/><path d="M18.4 15a7 7 0 1 1-1.2-7"/></svg>
+    <button class="iconbtn" id="show-menu" type="button" aria-label="この番組の操作メニュー">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
     </button>
   </header>
 
@@ -117,12 +114,12 @@
   </div>
 </section>
 
-<!-- エピソードごとの操作メニュー -->
+<!-- 操作メニュー。番組とエピソードの両方で使い回す -->
 <div class="sheet" id="sheet" hidden>
   <div class="sheet__backdrop" data-close-sheet></div>
-  <div class="sheet__panel" role="dialog" aria-label="エピソードの操作">
+  <div class="sheet__panel" role="dialog" aria-label="操作メニュー">
     <p class="sheet__title" id="sheet-title"></p>
-    <button class="sheet__item" type="button" id="sheet-mark">ここまで再生済みにする</button>
+    <div id="sheet-items"></div>
     <button class="sheet__item sheet__item--cancel" type="button" data-close-sheet>キャンセル</button>
   </div>
 </div>

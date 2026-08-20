@@ -288,32 +288,34 @@ $('filter-toggle').addEventListener('click', async () => {
   if (show.feedUrl) await setHideRead(show.feedUrl, show.hideRead);
 });
 
-$('show-refresh').addEventListener('click', () => {
-  if (show.feedUrl) openShow(show.feedUrl, { force: true });
-});
-
-// エピソードごとの操作メニュー。いまは項目が1つだが、増やす余地を持たせている。
-let menuEpisode = null;
-
-function openEpisodeMenu(episode) {
-  menuEpisode = episode;
-  $('sheet-title').textContent = episode.title;
+/**
+ * 下から出る操作メニュー。アイコンだけでは何が起きるか読み取れないので、
+ * 実行するものは文言で並べる。番組とエピソードの両方で使い回す。
+ */
+function openSheet(title, items) {
+  $('sheet-title').textContent = title;
+  const container = $('sheet-items');
+  container.innerHTML = '';
+  for (const item of items) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'sheet__item';
+    button.textContent = item.label;
+    button.addEventListener('click', () => {
+      closeSheet();
+      item.run();
+    });
+    container.appendChild(button);
+  }
   $('sheet').hidden = false;
 }
 
-function closeEpisodeMenu() {
+function closeSheet() {
   $('sheet').hidden = true;
-  menuEpisode = null;
 }
 
 $('sheet').addEventListener('click', (event) => {
-  if (event.target.closest('[data-close-sheet]')) closeEpisodeMenu();
-});
-
-$('sheet-mark').addEventListener('click', () => {
-  const episode = menuEpisode;
-  closeEpisodeMenu();
-  if (episode) markThrough(episode);
+  if (event.target.closest('[data-close-sheet]')) closeSheet();
 });
 
 /** 取り消しで元通りにできるよう、変更前の状態を控えておく */
@@ -369,7 +371,13 @@ async function resetShow() {
   await applyBulkChange(changing, false, `${changing.length} 件を未再生に戻しました`);
 }
 
-$('show-reset').addEventListener('click', () => { if (show.feedUrl) resetShow(); });
+$('show-menu').addEventListener('click', () => {
+  if (!show.feedUrl) return;
+  openSheet(show.title, [
+    { label: '最新のエピソードを取得', run: () => openShow(show.feedUrl, { force: true }) },
+    { label: '全て未再生に戻す', run: resetShow },
+  ]);
+});
 
 // iOS ではユーザー操作のイベントハンドラ内で同期的に play() を呼ぶ必要があるため、
 // 再生位置は描画時に読み込んだ show.states から同期的に取り出す（await を挟まない）
@@ -377,7 +385,7 @@ $('episode-list').addEventListener('click', (event) => {
   const menu = event.target.closest('[data-menu]');
   if (menu) {
     const target = show.episodes.find((ep) => ep.episodeId === menu.dataset.menu);
-    if (target) openEpisodeMenu(target);
+    if (target) openSheet(target.title, [{ label: 'ここまで再生済みにする', run: () => markThrough(target) }]);
     return;
   }
 
