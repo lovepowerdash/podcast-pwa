@@ -91,6 +91,19 @@ const showMenu = async (index) => {
   await page.click(`#sheet-items button >> nth=${index}`);
 };
 
+/** 設定が実際に保存されるまで待つ。書き込みの完了前に再読み込みすると失われるため */
+const waitForFollow = (field, value) => page.waitForFunction(
+  ([f, v]) => new Promise((resolve) => {
+    const req = indexedDB.open('podcast_pwa_db');
+    req.onsuccess = () => {
+      const get = req.result.transaction('follows').objectStore('follows').getAll();
+      get.onsuccess = () => resolve(get.result.some((row) => row[f] === v));
+    };
+  }),
+  [field, value],
+  { timeout: 5000 },
+);
+
 const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? ` — ${extra}` : ''}`); if (!ok) fail.push(name); };
 
 await page.goto('http://localhost:8099/', { waitUntil: 'networkidle' });
@@ -141,6 +154,7 @@ await page.click('#sort-toggle');
 t = await titles();
 check('1タップで昇順に反転', t[0].includes('第1回'), t.join(' | '));
 check('反転後のラベル', (await page.textContent('#sort-label')) === '公開日 古い順');
+await waitForFollow('sortOrder', 'asc');
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForSelector('[data-episode]');
 check('並び順が番組ごとに永続化される', (await page.textContent('#sort-label')) === '公開日 古い順');
@@ -267,6 +281,7 @@ await page.click('#filter-toggle');
 await page.waitForTimeout(200);
 check('再生済みを隠すと一覧から消える', !(await page.textContent('#episode-list')).includes('第1回'), (await page.locator('.ep__title').allTextContents()).join(' | '));
 check('フィルタのラベルが切り替わる', (await page.textContent('#filter-label')) === '未再生のみ');
+await waitForFollow('hideRead', true);
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForSelector('[data-episode]');
 check('フィルタ設定が番組ごとに永続化される', (await page.textContent('#filter-label')) === '未再生のみ');
@@ -432,6 +447,24 @@ check('差分が空なら一覧は変わらない', (await page.locator('[data-e
 
 await page.unroute('**/api/feed*');
 await page.route('**/api/feed*', (route) => route.abort('failed'));
+
+// --- 画面は中身が揃ってから出す（組み立ての過程を見せない）
+if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="/"]');
+await page.waitForSelector('#screen-home:not([hidden])');
+await page.evaluate(() => { window.__staged = null; });
+await page.evaluate(() => {
+  // 一覧画面が出た瞬間に、中身がすでに入っているかを見る
+  const target = document.getElementById('screen-show');
+  new MutationObserver(() => {
+    if (!target.hidden && window.__staged === null) {
+      window.__staged = document.querySelectorAll('[data-episode]').length;
+    }
+  }).observe(target, { attributes: true, attributeFilter: ['hidden'] });
+});
+await page.click('.row__main');
+await page.waitForSelector('[data-episode]');
+check('画面が出た時点で一覧が入っている', await page.evaluate(() => window.__staged > 0),
+  `出現時の件数: ${await page.evaluate(() => window.__staged)}`);
 
 // --- URLの形と、直接開いたときの挙動
 if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="/"]');

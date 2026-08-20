@@ -26,6 +26,11 @@ let lastScreenPath = '/';  // 重ねて出す画面を閉じたときに戻る�
 
 // ---- 画面切り替え ----------------------------------------------------------
 
+/**
+ * 画面を切り替える。
+ * 隠している間の書き換えは描画されないので、中身を組み立て終えてから呼ぶこと。
+ * 先に出してから埋めると、組み立ての過程がそのまま見えてしまう。
+ */
 function showScreen(name) {
   for (const key of ['home', 'show', 'search']) {
     $(`screen-${key}`).hidden = key !== name;
@@ -82,13 +87,12 @@ function route() {
   lastScreenPath = path + location.search;
 
   if (path === '/show') {
-    showScreen('show');
+    // 画面を出すのは openShow の中。中身が揃うまでは前の画面のままにする
     openShow(params.get('feed') || '');
   } else if (path === '/search') {
     showScreen('search');
     $('search-input').focus({ preventScroll: true });
   } else {
-    showScreen('home');
     renderHome();
   }
 }
@@ -153,7 +157,7 @@ async function renderHome() {
     isStandalone(),
     Boolean(installPrompt),
   ]);
-  if (signature === homeSignature) return;
+  if (signature === homeSignature) { showScreen('home'); return; }
   homeSignature = signature;
 
   // 端末に届いている版を確認できるようにしておく（タップで再生まわりの記録を表示）
@@ -168,6 +172,7 @@ async function renderHome() {
         <a class="btn" href="/search">番組を検索する</a>
       </div>
       <div class="home__bottom">${installTip()}${footer}</div>`;
+    showScreen('home');
     return;
   }
   list.classList.remove('is-empty');
@@ -182,6 +187,7 @@ async function renderHome() {
       </a>
       <button class="row__remove" type="button" data-unfollow="${escapeHtml(f.feedUrl)}" aria-label="フォローを解除">✕</button>
     </div>`).join('') + footer;
+  showScreen('home');
 
   backfillArtwork(follows);
 }
@@ -327,6 +333,7 @@ async function openShow(feedUrl, { force = false } = {}) {
       show.episodes = cache.rawEpisodes;
       show.states = states;
       renderEpisodes();
+      showScreen('show');
       // 表示したあとで、裏で更新の有無だけ確かめる
       checkForNewEpisodes(feedUrl, follow);
       return;
@@ -334,6 +341,7 @@ async function openShow(feedUrl, { force = false } = {}) {
   }
 
   $('episode-list').innerHTML = spinner('エピソードを取得中…');
+  showScreen('show');
 
   try {
     const [{ feedTitle, episodes }, states] = await Promise.all([
@@ -390,18 +398,22 @@ async function checkForNewEpisodes(feedUrl, follow) {
 $('sort-toggle').addEventListener('click', async () => {
   show.sortOrder = show.sortOrder === 'asc' ? 'desc' : 'asc';
   renderSortToggle();
+  // 保存を先に始める。描き直しに時間を取られている間に画面を閉じられると、
+  // 書き込みが中断されて設定が失われるため
+  const saved = show.feedUrl ? setSortOrder(show.feedUrl, show.sortOrder) : null;
   renderEpisodes();
   $('episode-list').scrollTop = 0;
-  if (show.feedUrl) await setSortOrder(show.feedUrl, show.sortOrder);
+  await saved;
 });
 
 // 再生済みを一覧から外す。並び替えと同じく1タップで切り替わり、番組ごとに保存される
 $('filter-toggle').addEventListener('click', async () => {
   show.hideRead = !show.hideRead;
   renderFilterToggle();
+  const saved = show.feedUrl ? setHideRead(show.feedUrl, show.hideRead) : null;
   renderEpisodes();
   $('episode-list').scrollTop = 0;
-  if (show.feedUrl) await setHideRead(show.feedUrl, show.hideRead);
+  await saved;
 });
 
 /**
