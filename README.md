@@ -61,6 +61,24 @@ RSS が数 MB になるため、`413 Payload Too Large` やタイムアウトで
 
 1. https://dash.cloudflare.com/ → Workers & Pages → Create → Start with Hello World → Deploy
 2. 作成した Worker の Edit code を開き、`worker/cors-proxy.js` の中身を貼り付けて Deploy
+
+   スマホなど貼り付けが厳しい環境向けの短縮版（機能は同じ）:
+
+   ```js
+   export default {
+     async fetch(req) {
+       const o = req.headers.get('origin') === 'https://lovepowerdash.github.io' ? 'https://lovepowerdash.github.io' : '';
+       const u = new URL(req.url).searchParams.get('url');
+       if (!o || !u) return new Response('no', { status: 403 });
+       const r = await fetch(u, { headers: { 'user-agent': 'podcast-pwa' }, cf: { cacheTtl: 300, cacheEverything: true } });
+       return new Response(r.body, { status: r.status, headers: { 'access-control-allow-origin': o, 'content-type': 'application/xml' } });
+     }
+   };
+   ```
+
+   ブラウザでコードを編集したくない場合は、Create → **Connect GitHub** でこのリポジトリを選び、
+   ルートディレクトリに `worker` を指定する。`worker/wrangler.toml` を読んで自動でデプロイされ、
+   以後は push するだけで更新される。
 3. 発行された `https://<名前>.<アカウント>.workers.dev` を控える
 4. アプリのホーム画面左上の歯車から `https://<名前>.workers.dev/?url=` を貼り付ける
    （端末の localStorage に保存され、`FEED_SOURCES` より優先される。再デプロイ不要）
@@ -97,6 +115,7 @@ js/ui.js              表示ヘルパー
 js/app.js             ルーティングと各画面の描画
 sw.js                 アプリシェルのみキャッシュ（音声・フィードはキャッシュしない）
 worker/cors-proxy.js  自前CORSプロキシ（Cloudflare Workers 用・任意）
+worker/wrangler.toml  上記をGitHub連携で自動デプロイするための設定
 test/smoke.mjs        Playwright によるエンドツーエンドのスモークテスト
 ```
 
