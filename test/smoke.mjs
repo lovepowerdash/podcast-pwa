@@ -108,6 +108,7 @@ const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  
 
 await page.goto('http://localhost:8099/', { waitUntil: 'networkidle' });
 check('ホームの空状態', (await page.textContent('#home-list')).includes('フォロー中の番組はまだありません'));
+check('番組が無いうちは並び替えのトグルを出さない', await page.isHidden('#home-sortbar'));
 check('ブラウザで開いた空状態では追加の案内を出す',
   (await page.textContent('#home-list')).includes('ホーム画面に追加すると便利です'));
 
@@ -514,13 +515,101 @@ await page.goto(showUrl, { waitUntil: 'networkidle' });
 await page.waitForSelector('[data-episode]');
 check('エピソード一覧のURLを直接開ける', (await page.locator('[data-episode]').count()) > 0);
 
+// --- ホームの並び順（フォローした順 / 更新が新しい順 / 五十音順を1タップで巡回）
+if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="/"]');
+await page.waitForSelector('#screen-home:not([hidden])');
+
+// 検証用のフォローを流し込む。テスト番組（実際にフォローした回）は日付だけ差し替え、
+// 画像や既読はそのまま残す。後片付けで元の内容に戻す
+const editFollows = (rows) => page.evaluate((list) => new Promise((resolve) => {
+  const req = indexedDB.open('podcast_pwa_db');
+  req.onsuccess = () => {
+    const store = req.result.transaction('follows', 'readwrite').objectStore('follows');
+    const before = [];
+    for (const row of list) {
+      if (row.remove) { store.delete(row.feedUrl); continue; }
+      const get = store.get(row.feedUrl);
+      get.onsuccess = () => {
+        if (get.result) before.push(get.result);
+        store.put({ ...(get.result || {}), ...row });
+      };
+    }
+    store.transaction.oncomplete = () => resolve(before);
+  };
+}), rows);
+
+const art = 'http://127.0.0.1:8099/art/100x100bb.jpg';
+const day = (y) => Date.UTC(y, 0, 1);
+const base = { artworkUrl: art, sortOrder: 'desc', hideRead: false };
+const injected = [
+  // フォローが新しく、更新は古い
+  { ...base, feedUrl: 'https://feed.test/a.xml', title: 'あかつきラジオ', followedAt: Date.now() + 1000000, latestPubDate: day(2020) },
+  // フォローが古く、更新は一番新しい
+  { ...base, feedUrl: 'https://feed.test/y.xml', title: 'ゆうぐれ通信', followedAt: 1000, latestPubDate: day(2030) },
+  // followedAt を持たない古い記録。一度も開いていないので更新日も無い
+  { ...base, feedUrl: 'https://feed.test/i.xml', title: 'いろはメモ' },
+  { ...base, feedUrl: 'https://feed.test/s.xml', title: 'さくらの話', latestPubDate: day(2025) },
+];
+const restore = await editFollows([
+  ...injected,
+  { feedUrl: 'https://feed.test/rss.xml', followedAt: Date.now(), latestPubDate: day(2026) },
+]);
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => document.querySelectorAll('.row__title').length === 5);
+
+const homeTitles = () => page.$$eval('.row__title', (els) => els.map((el) => el.textContent));
+const nextOrder = async (label) => {
+  await page.click('#home-sort');
+  await page.waitForFunction((l) => document.getElementById('home-sort-label').textContent === l, label);
+  return homeTitles();
+};
+
+check('番組があれば並び替えのトグルが出る', await page.isVisible('#home-sortbar'));
+check('既定はフォローした順', (await page.textContent('#home-sort-label')) === 'フォローした順');
+check('フォローした順（新しく追加したものが上、followedAt が無い記録は題名で決まる）',
+  (await homeTitles()).join() === ['あかつきラジオ', 'テスト番組', 'ゆうぐれ通信', 'いろはメモ', 'さくらの話'].join(),
+  (await homeTitles()).join(' / '));
+
+const updated = await nextOrder('更新が新しい順');
+check('1タップで更新が新しい順になる（更新日を持たない番組は末尾）',
+  updated.join() === ['ゆうぐれ通信', 'テスト番組', 'さくらの話', 'あかつきラジオ', 'いろはメモ'].join(),
+  updated.join(' / '));
+
+const kana = await nextOrder('五十音順');
+check('もう1タップで五十音順になる',
+  kana.join() === ['あかつきラジオ', 'いろはメモ', 'さくらの話', 'テスト番組', 'ゆうぐれ通信'].join(),
+  kana.join(' / '));
+
+// 選んだ順は端末に残る（開くたびに選び直さなくてよい）
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => document.querySelectorAll('.row__title').length === 5);
+check('選んだ並び順は再読み込み後も残る',
+  (await page.textContent('#home-sort-label')) === '五十音順'
+  && (await homeTitles()).join() === kana.join());
+
+// 描き直しでも入れ替わらない（画面を出入りしても同じ場所にある）
+await page.click('#screen-home a[href="/search"]');
+await page.waitForSelector('#screen-search:not([hidden])');
+await page.click('#screen-search a[href="/"]');
+await page.waitForSelector('#screen-home:not([hidden])');
+check('描き直しても並び順が変わらない', (await homeTitles()).join() === kana.join());
+
+const cycled = await nextOrder('フォローした順');
+check('3つ目から押すとフォローした順に戻る',
+  cycled.join() === ['あかつきラジオ', 'テスト番組', 'ゆうぐれ通信', 'いろはメモ', 'さくらの話'].join(),
+  cycled.join(' / '));
+
+await editFollows([...injected.map((row) => ({ feedUrl: row.feedUrl, remove: true })), ...restore]);
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => document.querySelectorAll('.row__title').length === 1);
+
 // --- 使い方
 if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="/"]');
 await page.click('a[href="/help"]');
 await page.waitForSelector('#help:not([hidden])');
 const helpText = await page.textContent('.help__body');
 check('使い方に主な操作が載っている',
-  ['番組を追加', '並び替え', '未再生のみ', '次の回へ自動', 'ここまで再生済み', 'ロック画面', 'ホーム画面に追加']
+  ['番組を追加', '並び替え', '未再生のみ', '次の回へ自動', 'ここまで再生済み', 'ロック画面', 'ホーム画面に追加', 'フォローした順']
     .every((word) => helpText.includes(word)));
 await page.click('#help-close');
 await page.waitForSelector('#help', { state: 'hidden' });

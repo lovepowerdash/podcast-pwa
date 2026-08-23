@@ -49,9 +49,54 @@ function tx(storeName, mode, fn) {
 
 // ---- follows --------------------------------------------------------------
 
-export async function listFollows() {
+// 題名の比較は五十音順と同点処理の両方で使うので、照合器はひとつ作って使い回す
+const collator = new Intl.Collator('ja');
+
+/**
+ * フォロー中の番組の並び順（設計書 8. の未確定事項をここで確定）。
+ * 次の3つを持ち、ホームのトグルを1タップ押すごとにこの順で巡回する。既定は followed。
+ *   followed : フォローした順（新しく追加したものが上）
+ *   updated  : フィードの更新が新しい順。まだ開いていない番組は更新日を持たないので末尾
+ *   title    : 題名の五十音順（漢字の題名は読みが無いため字の並び順になる）
+ * 既定を followed にしてあるのは、選んでいないのに新着のある番組が上へ来ないようにするため。
+ * 更新の新しい番組を把握したいときは updated を選ぶ。強調しないことと、知る手段を持つことは別。
+ * どの順でも最後は followedAt → 題名 → feedUrl で決着させ、描き直しても同じ場所に落ち着かせる
+ * （followedAt を持たない、この項目より前に追加した記録があるため）。
+ */
+const FOLLOW_ORDERS = {
+  followed: () => 0,
+  updated: (a, b) => (b.latestPubDate || 0) - (a.latestPubDate || 0),
+  title: (a, b) => collator.compare(a.title || '', b.title || ''),
+};
+
+export const FOLLOW_ORDER_KEYS = Object.keys(FOLLOW_ORDERS);
+
+export async function listFollows(order = getFollowOrder()) {
   const rows = (await tx('follows', 'readonly', (s) => s.getAll())) || [];
-  return rows.sort((a, b) => (b.followedAt || 0) - (a.followedAt || 0));
+  const primary = FOLLOW_ORDERS[order] || FOLLOW_ORDERS.followed;
+  return rows.sort((a, b) => primary(a, b)
+    || (b.followedAt || 0) - (a.followedAt || 0)
+    || collator.compare(a.title || '', b.title || '')
+    || a.feedUrl.localeCompare(b.feedUrl));
+}
+
+// 端末ごとの設定が1つあるだけなので localStorage に置く。同期的に読み書きできるため、
+// 描き直しの途中で画面を閉じられても書き込みが中断されない（番組ごとの設定と違う点）
+const FOLLOW_ORDER_KEY = 'podflow.followOrder';
+
+export function getFollowOrder() {
+  try {
+    const saved = localStorage.getItem(FOLLOW_ORDER_KEY);
+    return FOLLOW_ORDERS[saved] ? saved : 'followed';
+  } catch {
+    return 'followed'; // 保存領域が使えない設定でも一覧は出す
+  }
+}
+
+export function setFollowOrder(order) {
+  try {
+    localStorage.setItem(FOLLOW_ORDER_KEY, order);
+  } catch { /* 覚えられなくても、その場の並び替えは効く */ }
 }
 
 export function getFollow(feedUrl) {

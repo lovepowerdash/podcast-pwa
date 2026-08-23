@@ -138,6 +138,7 @@ body.is-playing .scroll { padding-bottom: calc(var(--mini-h) + var(--safe-bottom
   background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
+.sortbar[hidden] { display: none; }
 .sortbtn {
   display: inline-flex;
   align-items: center;

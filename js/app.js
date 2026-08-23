@@ -6,7 +6,7 @@ import {
   listFollows, getFollow, addFollow, removeFollow,
   setSortOrder, setHideRead, setArtwork, episodeStateMap, setEpisodesRead,
   putEpisodeStates, newEpisodeState, getFeedCache, setFollowTitle, setFeedSummary,
-  countReadEpisodes,
+  countReadEpisodes, getFollowOrder, setFollowOrder, FOLLOW_ORDER_KEYS,
 } from './db.js';
 import * as player from './player.js';
 import { APP_VERSION } from './config.js';
@@ -195,17 +195,29 @@ async function backfillFeedSummary(follows) {
   if (found && !$('screen-home').hidden) renderHome();
 }
 
+/**
+ * 並び順の名前。押すたびに何になったかが文言で分かるようにする（アイコンだけにしない）。
+ * 「更新が新しい順」は選んだときだけ効く。既定はフォローした順で、黙って新着が上へ来ることはない。
+ */
+const FOLLOW_ORDER_LABELS = {
+  followed: 'フォローした順',
+  updated: '更新が新しい順',
+  title: '五十音順',
+};
+
 // 同じ内容で描き直すと画像の要素が作り直され、読み込みし直しでちらつく。
 // 前回描いた内容と同じなら何もしない。
 let homeSignature = null;
 
 async function renderHome() {
   const list = $('home-list');
-  const follows = await listFollows();
+  const order = getFollowOrder();
+  const follows = await listFollows(order);
   // 再生済み件数は再生や一括操作で変わるので、控えずに episodes の索引から数える
   const readCounts = await Promise.all(follows.map((f) => countReadEpisodes(f.feedUrl)));
 
   const signature = JSON.stringify([
+    order,
     follows.map((f, i) => [
       f.feedUrl, f.title, f.artworkUrl, f.sortOrder, f.latestPubDate, f.episodeCount, readCounts[i],
     ]),
@@ -217,6 +229,10 @@ async function renderHome() {
 
   // 端末に届いている版を確認できるようにしておく（タップで再生まわりの記録を表示）
   const footer = `<button class="version" type="button" id="version">${escapeHtml(APP_VERSION)}</button>`;
+
+  // 並べ替える相手がいないうちはトグルを出さない（押しても何も起きない操作を置かない）
+  $('home-sortbar').hidden = follows.length === 0;
+  $('home-sort-label').textContent = FOLLOW_ORDER_LABELS[order];
 
   if (follows.length === 0) {
     // 案内はブラウザの操作パネルに近い画面下端へ寄せる（共有ボタンへの動線を短くするため）
@@ -271,6 +287,15 @@ async function backfillArtwork(follows) {
   }
   if (found && !$('screen-home').hidden) renderHome();
 }
+
+// 1タップで次の並び順へ送る（エピソード一覧の並び替えと同じ操作感にする）
+$('home-sort').addEventListener('click', () => {
+  const next = FOLLOW_ORDER_KEYS[(FOLLOW_ORDER_KEYS.indexOf(getFollowOrder()) + 1) % FOLLOW_ORDER_KEYS.length];
+  // 保存は同期的に済ませてから描き直す（描き直しの途中で画面を閉じられても設定は残る）
+  setFollowOrder(next);
+  renderHome();
+  $('home-list').scrollTop = 0;
+});
 
 $('home-list').addEventListener('click', async (event) => {
   if (event.target.closest('#install') && installPrompt) {
