@@ -49,9 +49,20 @@ function tx(storeName, mode, fn) {
 
 // ---- follows --------------------------------------------------------------
 
+/**
+ * フォロー中の番組の並び順（設計書 8. の未確定事項をここで確定）。
+ * フォローした順に、新しく追加したものから並べる。番組を追加したとき以外は入れ替わらない。
+ *   - 更新の新しい順にはしない。聴く前から新着のある番組が上に来ることになり、
+ *     「新着を強調しない・急かさない」方針と食い違う。開いていない番組は更新日も持たない
+ *   - 題名順（五十音）にもしない。読みを持っていないため漢字の題名は並びの根拠が出せず、
+ *     利用者から見て順番が決まっていないのと変わらなくなる
+ * followedAt を持たない古い記録は題名 → feedUrl で決め、描き直しても同じ場所に落ち着かせる。
+ */
 export async function listFollows() {
   const rows = (await tx('follows', 'readonly', (s) => s.getAll())) || [];
-  return rows.sort((a, b) => (b.followedAt || 0) - (a.followedAt || 0));
+  return rows.sort((a, b) => (b.followedAt || 0) - (a.followedAt || 0)
+    || (a.title || '').localeCompare(b.title || '', 'ja')
+    || a.feedUrl.localeCompare(b.feedUrl));
 }
 
 export function getFollow(feedUrl) {

@@ -514,13 +514,55 @@ await page.goto(showUrl, { waitUntil: 'networkidle' });
 await page.waitForSelector('[data-episode]');
 check('エピソード一覧のURLを直接開ける', (await page.locator('[data-episode]').count()) > 0);
 
+// --- ホームの並び順（フォローした順に、新しく追加したものから）
+if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="/"]');
+await page.waitForSelector('#screen-home:not([hidden])');
+const writeFollows = (rows) => page.evaluate((list) => new Promise((resolve) => {
+  const req = indexedDB.open('podcast_pwa_db');
+  req.onsuccess = () => {
+    const store = req.result.transaction('follows', 'readwrite').objectStore('follows');
+    for (const row of list) {
+      if (row.remove) store.delete(row.feedUrl); else store.put(row);
+    }
+    store.transaction.oncomplete = () => resolve();
+  };
+}), rows);
+const art = 'http://127.0.0.1:8099/art/100x100bb.jpg';
+const injected = [
+  // followedAt を持つもの。テスト番組（実際にフォローした回）は現在時刻なのでこの間に入る
+  { feedUrl: 'https://feed.test/new.xml', title: '新しく入れた番組', artworkUrl: art, sortOrder: 'desc', hideRead: false, followedAt: Date.now() + 1000000 },
+  { feedUrl: 'https://feed.test/old.xml', title: '古くから入れている番組', artworkUrl: art, sortOrder: 'desc', hideRead: false, followedAt: 1000 },
+  // followedAt を持たない古い記録。題名順で常に同じ場所に落ち着く
+  { feedUrl: 'https://feed.test/legacy-b.xml', title: 'かきくけこ番組', artworkUrl: art, sortOrder: 'desc', hideRead: false },
+  { feedUrl: 'https://feed.test/legacy-a.xml', title: 'あいうえお番組', artworkUrl: art, sortOrder: 'desc', hideRead: false },
+];
+await writeFollows(injected);
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => document.querySelectorAll('.row__title').length === 5);
+const order = await page.$$eval('.row__title', (els) => els.map((el) => el.textContent));
+const expected = ['新しく入れた番組', 'テスト番組', '古くから入れている番組', 'あいうえお番組', 'かきくけこ番組'];
+check('ホームはフォローした順（新しく追加したものが上）に並ぶ',
+  JSON.stringify(order) === JSON.stringify(expected), order.join(' / '));
+
+// 描き直しても順番が変わらない（更新日を控えても入れ替わらないこと）
+await page.click('#screen-home a[href="/search"]');
+await page.waitForSelector('#screen-search:not([hidden])');
+await page.click('#screen-search a[href="/"]');
+await page.waitForSelector('#screen-home:not([hidden])');
+check('描き直しても並び順が変わらない',
+  JSON.stringify(await page.$$eval('.row__title', (els) => els.map((el) => el.textContent))) === JSON.stringify(expected));
+
+await writeFollows(injected.map((row) => ({ feedUrl: row.feedUrl, remove: true })));
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => document.querySelectorAll('.row__title').length === 1);
+
 // --- 使い方
 if (!(await page.isVisible('#screen-home'))) await page.click('#screen-show a[href="/"]');
 await page.click('a[href="/help"]');
 await page.waitForSelector('#help:not([hidden])');
 const helpText = await page.textContent('.help__body');
 check('使い方に主な操作が載っている',
-  ['番組を追加', '並び替え', '未再生のみ', '次の回へ自動', 'ここまで再生済み', 'ロック画面', 'ホーム画面に追加']
+  ['番組を追加', '並び替え', '未再生のみ', '次の回へ自動', 'ここまで再生済み', 'ロック画面', 'ホーム画面に追加', 'フォローした順']
     .every((word) => helpText.includes(word)));
 await page.click('#help-close');
 await page.waitForSelector('#help', { state: 'hidden' });
