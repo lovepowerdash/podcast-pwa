@@ -801,6 +801,9 @@ if ('serviceWorker' in navigator) {
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (reloading) return;
+      // 音源を載せている間に読み直すと、その場で音が止まりロック画面の操作先も消える。
+      // 新しいコードは次回の起動で当たるので、聴いている最中は読み直さない。
+      if (player.hasLoadedAudio()) return;
       reloading = true;
       location.reload();
     });
@@ -817,3 +820,6 @@ if ('serviceWorker' in navigator) {
 
 route();
 renderPlayer(player.getState());
+// 前回の続きを読み戻す。iOS は背面のPWAを終了させることがあり、そのとき再生中だった回も
+// ロック画面の操作先も消える。読み戻しておけばミニプレイヤーの再生ボタンで続きへ戻れる
+player.restoreLast();

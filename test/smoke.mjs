@@ -217,6 +217,38 @@ check('feedCache に TTL 付きで保存', cache?.ttl === 900 && cache.rawEpisod
 const noGuid = cache.rawEpisodes.find((e) => e.title.includes('第2回'));
 check('episodeId の生成規則（guidなし → audioUrlのハッシュ）', /^https:\/\/feed\.test\/rss\.xml::[a-z0-9]+$/.test(noGuid.episodeId) && !noGuid.episodeId.includes('ep-'), noGuid.episodeId);
 
+// --- 再起動しても続きに戻れる（iOSは背面のPWAを終了させることがある）
+const savedPosition = () => page.evaluate(() => new Promise((resolve) => {
+  const req = indexedDB.open('podcast_pwa_db');
+  req.onsuccess = () => {
+    const s = req.result.transaction('episodes').objectStore('episodes').getAll();
+    s.onsuccess = () => resolve(s.result[0]?.position || 0);
+  };
+}));
+const stopped = await savedPosition();
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector('#mini:not([hidden])');
+check('再読み込み後も続きがミニプレイヤーに残る', (await page.textContent('#mini-title')).includes('第1回'), await page.textContent('#mini-title'));
+check('読み戻した位置を表示する', await page.evaluate((pos) => {
+  const width = document.getElementById('mini-progress').style.width;
+  return parseFloat(width) > 0 && pos > 1;
+}, stopped), `${stopped.toFixed(1)}s`);
+check('読み戻しただけでは音源を取りに行かない', await page.evaluate(() => !document.getElementById('audio').src));
+// 音源を載せていない間の pagehide で、保存済みの位置を 0 で潰さないこと
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector('#mini:not([hidden])');
+check('読み戻したまま終了しても再生位置が残る', Math.abs((await savedPosition()) - stopped) < 0.5, `${stopped.toFixed(1)}s`);
+await page.waitForSelector('[data-episode]');
+await page.click('#mini-toggle');
+await page.waitForFunction((pos) => {
+  const a = document.getElementById('audio');
+  return !a.paused && a.currentTime >= pos - 0.5;
+}, stopped, { timeout: 8000 }).catch(() => {});
+check('再生ボタンで続きから鳴る', await page.evaluate((pos) => {
+  const a = document.getElementById('audio');
+  return !a.paused && a.currentTime >= pos - 0.5;
+}, stopped), await page.evaluate(() => `t=${document.getElementById('audio').currentTime.toFixed(1)}`));
+
 // --- 既読化
 await page.evaluate(() => { const a = document.getElementById('audio'); a.currentTime = a.duration - 0.2; return a.play(); });
 await page.waitForTimeout(1500);
@@ -623,6 +655,33 @@ check('シークバーは自前で操作を受け取る',
   await page.evaluate(() => getComputedStyle(document.getElementById('player-seek')).touchAction === 'none'));
 check('viewport で拡大を禁止している',
   (await page.getAttribute('meta[name=viewport]', 'content')).includes('user-scalable=no'));
+
+// --- 聴き終えた回で再生を押しても無反応にしない（キューの最後で止まったとき）
+await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
+await page.waitForSelector('[data-episode]');
+const lastIndex = (await page.locator('[data-episode]').count()) - 1;
+await page.click(`[data-episode] >> nth=${lastIndex}`);
+await page.waitForSelector('#mini:not([hidden])');
+const lastTitle = await page.textContent('#mini-title');
+await page.waitForFunction(() => Number.isFinite(document.getElementById('audio').duration), null, { timeout: 8000 });
+await page.evaluate(() => {
+  const a = document.getElementById('audio');
+  a.currentTime = a.duration - 0.1;
+  a.pause();
+});
+await page.waitForTimeout(600);
+check('キューの最後を聴き終えたら止まったままにする', await page.evaluate(() => document.getElementById('audio').paused));
+await page.click('#mini-toggle');
+await page.waitForFunction(() => {
+  const a = document.getElementById('audio');
+  return !a.paused && a.currentTime < a.duration / 2;
+}, null, { timeout: 8000 }).catch(() => {});
+check('聴き終えた回で再生を押すと頭から鳴る', await page.evaluate(() => {
+  const a = document.getElementById('audio');
+  return !a.paused && a.currentTime < a.duration / 2;
+}), await page.evaluate(() => `t=${document.getElementById('audio').currentTime.toFixed(1)}`));
+check('送り先が無いので回は変わらない', (await page.textContent('#mini-title')) === lastTitle, await page.textContent('#mini-title'));
+await page.evaluate(() => document.getElementById('audio').pause());
 
 // --- Service Worker / manifest
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));

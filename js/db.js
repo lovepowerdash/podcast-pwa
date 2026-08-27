@@ -179,6 +179,18 @@ export async function episodeStateMap(feedUrl) {
   return new Map(rows.map((row) => [row.episodeId, row]));
 }
 
+/**
+ * 最後に聴いていた、まだ聴き終えていない回。起動時に「続き」を読み戻すために使う。
+ * 聴き終えた回（isRead）は再生位置を持たないので続きが無く、対象にしない。
+ */
+export async function lastPlayedEpisode() {
+  const rows = (await tx('episodes', 'readonly', (s) => s.getAll())) || [];
+  return rows.reduce((best, row) => {
+    if (row.isRead || !row.lastPlayedAt || !row.audioUrl) return best;
+    return !best || row.lastPlayedAt > best.lastPlayedAt ? row : best;
+  }, null);
+}
+
 export function putEpisodeState(state) {
   return tx('episodes', 'readwrite', (s) => s.put(state));
 }
