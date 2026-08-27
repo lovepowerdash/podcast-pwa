@@ -3,14 +3,15 @@
 // バックグラウンド／ロック画面からの操作はここで全部受ける。
 // ---------------------------------------------------------------------------
 import { SEEK_SECONDS, POSITION_SAVE_INTERVAL_MS, READ_RATIO, PLAYBACK_RATES } from './config.js';
-import { updateEpisodeState, getEpisodeState } from './db.js';
+import { updateEpisodeState, getEpisodeState, lastPlayedEpisode, getFollow } from './db.js';
 
 const audio = document.getElementById('audio');
 const listeners = new Set();
 
 let current = null;      // 再生中のエピソード（+ showTitle）
 let queue = [];          // 連続再生の順番。一覧に表示されている順のスナップショット
-let pendingSeek = 0;     // メタデータ読み込み後に適用する再生位置
+let armed = false;       // current の音源を <audio> に載せてあるか（起動直後の復元では false）
+let pendingSeek = 0;     // まだ <audio> に反映していない再生位置。メタデータ読み込み後に適用する
 let lastSaved = 0;
 let readRevision = 0;    // 既読フラグを書き込むたびに増える。一覧側の読み直しの合図
 let autoAdvancing = false;   // いま自動送りの最中か
@@ -45,11 +46,17 @@ function emit() {
   listeners.forEach((fn) => fn(snapshot));
 }
 
+/** いま画面に出すべき再生位置。音源を載せる前は、まだ反映していない位置を返す */
+function currentPosition() {
+  if (!armed) return pendingSeek;
+  return audio.currentTime || pendingSeek || 0;
+}
+
 export function getState() {
   return {
     episode: current,
-    playing: current ? !audio.paused && !audio.ended : false,
-    position: audio.currentTime || 0,
+    playing: armed ? !audio.paused && !audio.ended : false,
+    position: currentPosition(),
     duration: Number.isFinite(audio.duration) ? audio.duration : (current?.duration || 0),
     rate: audio.playbackRate,
     readRevision,
@@ -60,7 +67,9 @@ export function getState() {
 // ---- 永続化 ---------------------------------------------------------------
 
 async function persist({ force = false } = {}) {
-  if (!current) return;
+  // 音源を載せる前（起動直後の復元）は audio.currentTime が 0 なので、
+  // ここで書き戻すと保存済みの再生位置を 0 で潰してしまう。載せるまでは触らない。
+  if (!current || !armed) return;
   const now = Date.now();
   if (!force && now - lastSaved < POSITION_SAVE_INTERVAL_MS) return;
   lastSaved = now;
@@ -139,7 +148,7 @@ function jump(offset) {
 function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
   const handlers = {
-    play: () => { userPaused = false; audio.play().catch(() => {}); },
+    play: () => resume(),
     pause: () => { userPaused = true; audio.pause(); },
     seekbackward: (details) => seekBy(-(details?.seekOffset || SEEK_SECONDS)),
     seekforward: (details) => seekBy(details?.seekOffset || SEEK_SECONDS),
@@ -155,6 +164,65 @@ function setupMediaSession() {
 // ---- 操作 -----------------------------------------------------------------
 
 /**
+ * current の音源を <audio> に載せる。
+ * iOS では load() を呼ぶとユーザー操作で得た再生許可が外れ、自動送りの play() が
+ * 拒否されることがある。src を代入すれば読み込みは始まるので load() は呼ばない。
+ */
+function arm(startAt = 0) {
+  pendingSeek = startAt > 0 ? startAt : 0;
+  armed = true;
+  audio.src = current.audioUrl;
+  updateMetadata();
+}
+
+/**
+ * 一時停止からの再開。ミニプレイヤーの再生ボタンと、ロック画面／コントロールセンターの
+ * 再生ボタンはここを通る。
+ *
+ * 押しても何も起きない状態が3つあるので、ここで拾って必ず音を出す。
+ *   1. 起動直後 — 続きを読み戻しただけで、まだ音源を載せていない
+ *   2. iOS が読み込み済みの音声を捨てた後 — src はあるが鳴らせない（error / 音源なし）
+ *   3. 聴き終えた回で止まっている — 終端から play() しても進まない
+ */
+export function resume() {
+  if (!current) return undefined;
+  userPaused = false;
+
+  const lost = !armed || !audio.src || audio.error
+    || audio.networkState === HTMLMediaElement.NETWORK_NO_SOURCE;
+  if (lost) {
+    log('re-arm', audio.error ? `code=${audio.error.code}` : '');
+    arm(currentPosition());
+  } else if (isAtEnd()) {
+    // 聴き終えた回。次があればそちらへ送り、無ければ頭から鳴らす（無反応にはしない）
+    const next = neighbour(1);
+    if (next) return play(next, current.showTitle, next.resumeAt || 0);
+    log('replay-from-start');
+    advancedFrom = null;
+    audio.currentTime = 0;
+  }
+
+  const targetId = current.episodeId;
+  const promise = audio.play();
+  if (promise) {
+    promise.catch((err) => {
+      log('resume-rejected', err?.name || '');
+      // iOS は読み込み済みの音声を黙って捨てることがあり、そのときは error も付かないまま
+      // 拒否される。載せ直すと鳴ることがあるので一度だけ試す。
+      // 別の回を選び直したことによる中断（AbortError）は、そのまま次の再生に任せる。
+      const stale = current?.episodeId !== targetId || err?.name === 'AbortError';
+      if (!lost && !stale && audio.paused) {
+        arm(currentPosition());
+        audio.play().catch((again) => log('re-arm-rejected', again?.name || ''));
+      }
+      emit();
+    });
+  }
+  emit();
+  return promise;
+}
+
+/**
  * 再生を開始する。
  * iOS はユーザー操作を起点としないと再生できないため、
  * この関数はタップイベントのハンドラ内から同期的に呼ぶこと（await を挟まない）。
@@ -164,16 +232,13 @@ function setupMediaSession() {
  */
 export function play(episode, showTitle, startAt = 0, nextQueue = null) {
   if (nextQueue) queue = nextQueue;
-  const isSame = current && current.episodeId === episode.episodeId;
+  // 音源をまだ載せていないとき（起動直後の復元）は、同じ回でも載せ直しが要る
+  const isSame = armed && current && current.episodeId === episode.episodeId;
   current = { ...episode, showTitle };
 
   if (!isSame) {
     advancedFrom = null;
-    pendingSeek = startAt > 0 ? startAt : 0;
-    // iOS では load() を呼ぶとユーザー操作で得た再生許可が外れ、自動送りの play() が
-    // 拒否されることがある。src を代入すれば読み込みは始まるので load() は呼ばない。
-    audio.src = episode.audioUrl;
-    updateMetadata();
+    arm(startAt);
   }
 
   const auto = autoAdvancing;
@@ -196,22 +261,28 @@ export function play(episode, showTitle, startAt = 0, nextQueue = null) {
 
 export function toggle() {
   if (!current) return;
-  if (audio.paused) {
-    userPaused = false;
-    audio.play().catch(() => {});
-  } else {
+  if (armed && !audio.paused) {
     userPaused = true;
     audio.pause();
+    return;
   }
+  resume();
 }
 
 export function seekBy(seconds) {
   if (!current) return;
-  seekTo((audio.currentTime || 0) + seconds);
+  seekTo(currentPosition() + seconds);
 }
 
 export function seekTo(seconds) {
   if (!current) return;
+  if (!armed) {
+    // まだ音源を載せていない（起動直後の復元）。載せたときに適用する位置だけ動かす
+    const limit = current.duration || 0;
+    pendingSeek = Math.max(0, limit > 0 ? Math.min(seconds, limit) : seconds);
+    emit();
+    return;
+  }
   const max = Number.isFinite(audio.duration) ? audio.duration : seconds;
   audio.currentTime = Math.max(0, Math.min(seconds, max));
   persist({ force: true });
@@ -225,6 +296,42 @@ export function cycleRate() {
   updatePlaybackState();
   emit();
   return audio.playbackRate;
+}
+
+/**
+ * 最後に聴いていた回を、止まった状態で読み戻す（起動時に一度だけ呼ぶ）。
+ *
+ * iOS は PWA を背面で終了させることがあり、そのとき <audio> も Media Session も消える。
+ * 読み戻しておかないと、再起動後はミニプレイヤーもロック画面の操作先も無くなり、
+ * 「続きから」に一覧を開き直して探し当てる必要が出る。
+ *
+ * 音源はここでは載せない。載せると起動しただけで通信が始まるため、
+ * 実際に再生ボタンが押された時点（resume）で載せる。
+ */
+export async function restoreLast() {
+  if (current) return null; // すでに何か再生していれば触らない
+  const state = await lastPlayedEpisode().catch(() => null);
+  if (!state || !state.audioUrl) return null;
+  const follow = await getFollow(state.feedUrl).catch(() => null);
+  if (current) return null; // 読み出しを待つ間に利用者が再生を始めていたら、そちらを優先する
+  current = {
+    episodeId: state.episodeId,
+    feedUrl: state.feedUrl,
+    title: state.title,
+    audioUrl: state.audioUrl,
+    duration: state.duration || 0,
+    showTitle: follow?.title || '',
+  };
+  armed = false;
+  pendingSeek = state.position || 0;
+  log('restore', `${Math.round(pendingSeek)}s`);
+  emit();
+  return current;
+}
+
+/** 読み直すと音が途切れるか（Service Worker の更新をいつ当てるかの判定に使う） */
+export function hasLoadedAudio() {
+  return armed;
 }
 
 /** 中断した位置から再開するための保存済み再生位置 */
