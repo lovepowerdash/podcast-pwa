@@ -179,6 +179,20 @@ check('音声が進んでいる', await page.evaluate(() => !document.getElement
 check('Media Session メタデータ', await page.evaluate(() => navigator.mediaSession?.metadata?.title?.includes('第1回') && navigator.mediaSession.metadata.artist === 'テスト番組'));
 check('artwork は未設定', await page.evaluate(() => (navigator.mediaSession?.metadata?.artwork || []).length === 0));
 
+// --- ミニプレイヤーだけで再生位置を動かせる（フルプレイヤーを開かずに済ませる）
+await page.waitForFunction(() => Number.isFinite(document.getElementById('audio').duration), null, { timeout: 8000 });
+await page.evaluate(() => {
+  const seek = document.getElementById('mini-seek');
+  seek.value = String(Math.round((6 / document.getElementById('audio').duration) * 1000));
+  seek.dispatchEvent(new Event('input', { bubbles: true }));
+  seek.dispatchEvent(new Event('change', { bubbles: true }));
+});
+check('ミニプレイヤーのシークバーで移動できる', await page.evaluate(() => {
+  const t = document.getElementById('audio').currentTime;
+  return t >= 5.5 && t < 9;
+}), await page.evaluate(() => `t=${document.getElementById('audio').currentTime.toFixed(1)}`));
+check('ミニプレイヤーに経過と長さが出る', /^\d+:\d\d \/ \d+:\d\d$/.test(await page.textContent('#mini-time')), await page.textContent('#mini-time'));
+
 // --- フルプレイヤー
 await page.click('.mini__tap');
 await page.waitForSelector('#player:not([hidden])');
@@ -230,8 +244,8 @@ await page.reload({ waitUntil: 'networkidle' });
 await page.waitForSelector('#mini:not([hidden])');
 check('再読み込み後も続きがミニプレイヤーに残る', (await page.textContent('#mini-title')).includes('第1回'), await page.textContent('#mini-title'));
 check('読み戻した位置を表示する', await page.evaluate((pos) => {
-  const width = document.getElementById('mini-progress').style.width;
-  return parseFloat(width) > 0 && pos > 1;
+  const seek = document.getElementById('mini-seek');
+  return Number(seek.value) > 0 && seek.style.getPropertyValue('--fill') !== '0%' && pos > 1;
 }, stopped), `${stopped.toFixed(1)}s`);
 check('読み戻しただけでは音源を取りに行かない', await page.evaluate(() => !document.getElementById('audio').src));
 // 音源を載せていない間の pagehide で、保存済みの位置を 0 で潰さないこと
@@ -652,7 +666,8 @@ check('touch-action で拡大を止めている（縦スクロールのみ許可
   await page.evaluate(() => getComputedStyle(document.body).touchAction === 'pan-y'),
   await page.evaluate(() => getComputedStyle(document.body).touchAction));
 check('シークバーは自前で操作を受け取る',
-  await page.evaluate(() => getComputedStyle(document.getElementById('player-seek')).touchAction === 'none'));
+  await page.evaluate(() => ['player-seek', 'mini-seek']
+    .every((id) => getComputedStyle(document.getElementById(id)).touchAction === 'none')));
 check('viewport で拡大を禁止している',
   (await page.getAttribute('meta[name=viewport]', 'content')).includes('user-scalable=no'));
 

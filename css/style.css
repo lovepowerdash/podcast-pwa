@@ -11,7 +11,7 @@
   --accent: #a78bfa;
   --line: #302e40;
   --appbar-h: 52px;
-  --mini-h: 60px;
+  --mini-h: 74px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -375,37 +375,89 @@ body.is-playing .scroll { padding-bottom: calc(var(--mini-h) + var(--safe-bottom
 }
 .empty { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 48px 16px 16px; color: var(--text-dim); }
 
-/* ---- ミニプレイヤー ---- */
+/* ---- ミニプレイヤー ----
+   一覧に埋もれて再生が始まったことに気付けない、という指摘への対処。
+   一段明るい面に影を落として一覧から浮かせ、上端に操作できるシークバーを通し、
+   再生ボタンはフルプレイヤーと同じ塗りつぶしの丸で置く。 */
 .mini {
   position: fixed;
   left: 0; right: 0;
   bottom: 0;
   z-index: 20;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   height: calc(var(--mini-h) + var(--safe-bottom));
-  padding: 0 8px var(--safe-bottom) 16px;
+  padding-bottom: var(--safe-bottom);
   background: var(--surface-2);
   border-top: 1px solid var(--line);
+  /* 一覧の続きに見えないよう、下から光を遮る影で境目をはっきりさせる */
+  box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.5);
 }
 .mini[hidden] { display: none; }
+
+/* 上端に通すシークバー。細く見せつつ、指で掴める高さ（22px）は確保する。
+   --fill には再生済みの割合を JS から入れる（webkit にはトラックの塗り分けが無いため） */
+.mini__seek {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: none;
+  display: block;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  /* 親が pan-y なので、横方向にドラッグするシークバーだけは自前で操作を受け取る */
+  touch-action: none;
+}
+.mini__seek::-webkit-slider-runnable-track {
+  height: 3px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--line) var(--fill, 0%));
+}
+.mini__seek::-moz-range-track {
+  height: 3px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--line) var(--fill, 0%));
+}
+.mini__seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px; height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.mini__seek::-moz-range-thumb {
+  width: 12px; height: 12px;
+  border: 0; border-radius: 50%;
+  background: var(--accent);
+}
+
+.mini__row {
+  flex: 1; min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 16px;
+}
 .mini__tap {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column; gap: 2px;
   color: inherit; text-decoration: none;
 }
 .mini__title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mini__show { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mini__bar { height: 2px; margin-top: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
-.mini__bar i { display: block; height: 100%; background: var(--accent); }
+.mini__sub { display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: var(--text-dim); }
+.mini__show { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini__time { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
 .mini__btn {
-  width: 48px; height: 48px; flex: none;
+  width: 44px; height: 44px; flex: none;
   display: grid; place-items: center;
-  border: 0; border-radius: 14px;
-  background: none; color: var(--text);
+  border: 0; border-radius: 50%;
+  background: var(--accent); color: #17131f;
   cursor: pointer;
 }
-.mini__btn:active { background: var(--surface); }
+.mini__btn svg { width: 24px; height: 24px; }
+.mini__btn:active { opacity: 0.7; }
 
 /* ---- 使い方 ---- */
 .help {
