@@ -48,6 +48,8 @@ button, input { font: inherit; color: inherit; }
 .screen[hidden] { display: none; }
 
 .appbar {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -121,6 +123,8 @@ button, input { font: inherit; color: inherit; }
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /* 引っ張って更新のために端の動きを自分で受けるので、外側へ伝えない */
+  overscroll-behavior-y: contain;
   padding-bottom: calc(var(--safe-bottom) + 16px);
 }
 /* ミニプレイヤーが出ているときだけ、その分の余白を確保する */
@@ -129,9 +133,39 @@ body.is-playing .scroll { padding-bottom: calc(var(--mini-h) + var(--safe-bottom
 .scroll.is-empty { display: flex; flex-direction: column; }
 .home__bottom { margin-top: auto; }
 
+/* ---- 引っ張って更新 ----
+   一覧の上端で下に引くと出てくる印。高さ 0 の器に浮かせてあるので、
+   一覧そのものは動かさない（長い一覧を transform で動かすと重いため）。
+   位置と濃さは JS から直接書き込む。 */
+.ptr { position: relative; height: 0; flex: none; }
+.ptr__icon {
+  position: absolute;
+  left: 50%; top: 8px;
+  z-index: 0;
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  /* 何も引いていないときは、上のバーの裏へ隠しておく */
+  transform: translate(-50%, -48px);
+  opacity: 0;
+}
+.ptr__icon svg { width: 18px; height: 18px; }
+/* 指を離したあとだけアニメーションで戻す（指に付いて動く間は補間しない） */
+.ptr.is-settling .ptr__icon { transition: transform 0.2s ease, opacity 0.2s ease; }
+.ptr.is-ready .ptr__icon,
+.ptr.is-busy .ptr__icon { color: var(--accent); border-color: var(--accent); }
+.ptr.is-busy .ptr__icon svg { animation: ptr-spin 0.9s linear infinite; }
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
+
 /* ---- 並び替えトグル（常時固定・1タップで反転） ---- */
 .sortbar {
   flex: none;
+  /* 引っ張って更新の印が、この下から出てくるように見せる */
+  position: relative;
+  z-index: 1;
   display: flex;
   gap: 8px;
   padding: 8px 12px;

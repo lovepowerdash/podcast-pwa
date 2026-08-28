@@ -522,6 +522,88 @@ await page.waitForTimeout(900);
 check('差分が空なら一覧は変わらない', (await page.locator('[data-episode]').count()) === 5,
   `${await page.locator('[data-episode]').count()}件`);
 
+// --- 引っ張って更新
+// 実機の指の動きをそのまま作る。Playwright の mouse ではタッチにならないため、
+// TouchEvent を組み立てて投げる。
+const pull = (selector, dy) => page.evaluate(async ({ selector, dy }) => {
+  const el = document.querySelector(selector);
+  el.scrollTop = 0;
+  const box = el.getBoundingClientRect();
+  const x = Math.round(box.x + box.width / 2);
+  const y0 = Math.round(box.y + 20);
+  const at = (clientY) => new Touch({ identifier: 1, target: el, clientX: x, clientY });
+  const send = (type, clientY) => el.dispatchEvent(new TouchEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    touches: type === 'touchend' ? [] : [at(clientY)],
+    targetTouches: type === 'touchend' ? [] : [at(clientY)],
+    changedTouches: [at(clientY)],
+  }));
+  send('touchstart', y0);
+  for (let d = 10; d < dy; d += 20) {
+    send('touchmove', y0 + d);
+    await new Promise((next) => setTimeout(next, 8));
+  }
+  send('touchmove', y0 + dy);
+  send('touchend', y0 + dy);
+}, { selector, dy });
+
+// 少しだけ引いても更新しない（普通のスクロールと取り違えない）
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => route.fulfill({ status: 204 }));
+await openShowFromHome();
+await pull('#episode-list', 40);
+check('引きが浅いときは更新しない', !(await page.evaluate(() => document.getElementById('show-ptr').classList.contains('is-busy'))));
+
+// 深く引くと、開いたときと同じ新着の確認が走る
+const sixth = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel><title>テスト番組</title>
+    <item>
+      <title>第6回 引っ張って届いた回</title>
+      <guid>ep-6</guid>
+      <pubDate>Mon, 11 Mar 2024 09:00:00 +0900</pubDate>
+      <itunes:duration>10:00</itunes:duration>
+      <enclosure url="http://localhost:8099/__audio/ep6.wav" type="audio/wav" length="1000"/>
+    </item>
+</channel></rss>`;
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => route.fulfill({
+  status: 200,
+  contentType: 'application/xml',
+  headers: { 'x-feed-partial': '1' },
+  body: sixth,
+}));
+const pulling = pull('#episode-list', 160);
+// .ptr は高さ0の器なので、見えているかではなく状態で待つ
+check('引いている間は印が回る', await page.waitForFunction(
+  () => document.getElementById('show-ptr').classList.contains('is-busy'),
+  null, { timeout: 4000 },
+).then(() => true, () => false));
+await pulling;
+await page.waitForFunction(() => document.querySelectorAll('[data-episode]').length === 6, null, { timeout: 8000 }).catch(() => {});
+check('エピソード一覧を引っ張ると新着を取り込む', (await page.locator('[data-episode]').count()) === 6,
+  `${await page.locator('[data-episode]').count()}件`);
+check('引っ張って更新でも知らせは出さない',
+  !/新しいエピソード|一覧を更新/.test(await page.textContent('#toast')),
+  await page.textContent('#toast'));
+await page.waitForFunction(
+  () => !document.getElementById('show-ptr').classList.contains('is-busy'),
+  null, { timeout: 8000 },
+);
+
+// ホームは普段ネットワークに触らないので、引いたときだけ全番組を確かめに行く
+await page.click('#screen-show a[href="/"]');
+await page.waitForSelector('#screen-home:not([hidden])');
+await page.waitForSelector('.row__main');
+let homeAsked = 0;
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => { homeAsked += 1; route.fulfill({ status: 204 }); });
+await pull('#home-list', 160);
+await page.waitForFunction(() => !document.getElementById('home-ptr').classList.contains('is-busy'), null, { timeout: 8000 });
+check('ホームを引っ張ると全番組の更新を確かめる', homeAsked >= 1, `${homeAsked}件に問い合わせ`);
+check('ホームの表示はネットワークを待たずに出ている', await page.isVisible('.row__main'));
+
 await page.unroute('**/api/feed*');
 await page.route('**/api/feed*', (route) => route.abort('failed'));
 
@@ -655,7 +737,7 @@ await page.click('a[href="/help"]');
 await page.waitForSelector('#help:not([hidden])');
 const helpText = await page.textContent('.help__body');
 check('使い方に主な操作が載っている',
-  ['番組を追加', '並び替え', '未再生のみ', '次の回へ自動', 'ここまで再生済み', 'ロック画面', 'ホーム画面に追加', 'フォローした順']
+  ['番組を追加', '並び替え', '未再生のみ', '次の回へ自動', 'ここまで再生済み', 'ロック画面', 'ホーム画面に追加', 'フォローした順', '下に引っ張る']
     .every((word) => helpText.includes(word)));
 await page.click('#help-close');
 await page.waitForSelector('#help', { state: 'hidden' });
