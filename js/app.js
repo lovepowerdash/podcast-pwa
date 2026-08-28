@@ -320,6 +320,127 @@ $('home-list').addEventListener('click', async (event) => {
   renderHome();
 });
 
+// ---- 引っ張って更新 ---------------------------------------------------------
+
+const PULL_THRESHOLD = 48;   // ここまで印が下りたら更新する
+const PULL_MAX = 76;         // それ以上は下りない（引き続けても青天井にしない）
+const PULL_DAMPING = 0.5;    // 指の動きの半分だけ印を動かす
+const PULL_MIN_SPIN_MS = 400; // 速く終わっても、回っているのが見える程度は残す
+
+/**
+ * 一覧を下に引っ張ったときに onRefresh を呼ぶ。
+ *
+ * 横取りするのは「一番上にいるときの、下向きの動き」だけ。それ以外は普通のスクロールに
+ * 任せるので、決まるまで preventDefault を呼ばない（呼ぶとスクロールが効かなくなる）。
+ */
+function attachPullToRefresh(scrollEl, ptr, onRefresh) {
+  const icon = ptr.querySelector('.ptr__icon');
+  let startY = 0;
+  let startX = 0;
+  let tracking = false;  // 指が触れていて、引っ張りになりうる
+  let pulling = false;   // 引っ張りだと決まった（以降はスクロールさせない）
+  let distance = 0;
+  let busy = false;
+
+  function place(d) {
+    distance = d;
+    icon.style.transform = `translate(-50%, ${d - PULL_THRESHOLD}px)`;
+    icon.style.opacity = String(Math.min(1, d / PULL_THRESHOLD));
+    ptr.classList.toggle('is-ready', !busy && d >= PULL_THRESHOLD);
+  }
+
+  function settle() {
+    ptr.classList.add('is-settling');
+    place(0);
+    setTimeout(() => ptr.classList.remove('is-settling'), 220);
+  }
+
+  scrollEl.addEventListener('touchstart', (event) => {
+    if (busy || event.touches.length !== 1 || scrollEl.scrollTop > 0) return;
+    tracking = true;
+    pulling = false;
+    startY = event.touches[0].clientY;
+    startX = event.touches[0].clientX;
+  }, { passive: true });
+
+  scrollEl.addEventListener('touchmove', (event) => {
+    if (!tracking) return;
+    const dy = event.touches[0].clientY - startY;
+    const dx = event.touches[0].clientX - startX;
+    if (!pulling) {
+      // 横向き・上向きの動きは普通の操作。引っ張りだと決まるまで手を出さない
+      if (Math.abs(dx) > Math.abs(dy) || dy < 0) { tracking = false; return; }
+      if (dy < 8) return;
+      if (scrollEl.scrollTop > 0) { tracking = false; return; }
+      pulling = true;
+    }
+    // 端で跳ね返る既定の動きを止め、代わりに印を出す
+    event.preventDefault();
+    place(Math.min(PULL_MAX, dy * PULL_DAMPING));
+  }, { passive: false });
+
+  async function release() {
+    if (!tracking) return;
+    tracking = false;
+    if (!pulling) return;
+    pulling = false;
+    if (distance < PULL_THRESHOLD) { settle(); return; }
+
+    busy = true;
+    ptr.classList.remove('is-ready');
+    ptr.classList.add('is-busy', 'is-settling');
+    place(PULL_THRESHOLD);
+    const startedAt = Date.now();
+    try {
+      await onRefresh();
+    } catch { /* 確かめられなくても、表示済みの内容はそのままでよい */ }
+    const rest = PULL_MIN_SPIN_MS - (Date.now() - startedAt);
+    if (rest > 0) await new Promise((done) => setTimeout(done, rest));
+    busy = false;
+    ptr.classList.remove('is-busy');
+    settle();
+  }
+
+  scrollEl.addEventListener('touchend', release);
+  scrollEl.addEventListener('touchcancel', release);
+}
+
+/**
+ * ホームを引っ張ったときの更新。フォロー中の全番組に新しい回が出ていないか確かめる。
+ * ホームは普段ネットワークに触らない（描画は手元の記録だけで済ませる）ので、
+ * まとめて確かめられるのはこの操作だけ。見つかっても知らせは出さず、
+ * 更新日と全件数が新しくなるだけにする。
+ */
+async function refreshAllFollows() {
+  const follows = await listFollows(getFollowOrder());
+  if (follows.length === 0) return;
+  if (navigator.onLine === false) { toast('オフラインのため更新を確認できません'); return; }
+
+  // 番組の数だけ同時に投げると中継にも端末にも負担なので、3本ずつ流す
+  const queue = [...follows];
+  const worker = async () => {
+    for (let follow = queue.shift(); follow; follow = queue.shift()) {
+      try {
+        const result = await revalidateFeed(follow.feedUrl);
+        if (result.changed) await rememberFeedSummary(follow, result.episodes);
+      } catch { /* 取れない番組は飛ばし、残りの確認は続ける */ }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  if (!$('screen-home').hidden) await renderHome();
+}
+
+/** エピソード一覧を引っ張ったときの更新。開いたときと同じ、新着だけの確認を呼び直す */
+async function refreshEpisodes() {
+  if (!show.feedUrl) return;
+  if (navigator.onLine === false) { toast('オフラインのため更新を確認できません'); return; }
+  const follow = await getFollow(show.feedUrl);
+  if (follow) await checkForNewEpisodes(show.feedUrl, follow);
+}
+
+attachPullToRefresh($('home-list'), $('home-ptr'), refreshAllFollows);
+attachPullToRefresh($('episode-list'), $('show-ptr'), refreshEpisodes);
+
 // ---- エピソード一覧 ---------------------------------------------------------
 
 /** 並び替えとフィルタを適用した、いま画面に出ている順番のエピソード */
