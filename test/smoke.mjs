@@ -555,6 +555,48 @@ await openShowFromHome();
 await pull('#episode-list', 40);
 check('引きが浅いときは更新しない', !(await page.evaluate(() => document.getElementById('show-ptr').classList.contains('is-busy'))));
 
+// 指に付いて一覧そのものが下がり、引くほど重くなる（iOS の標準と同じ手応え）
+const tracked = await page.evaluate(() => {
+  const el = document.getElementById('episode-list');
+  el.scrollTop = 0;
+  const box = el.getBoundingClientRect();
+  const x = Math.round(box.x + box.width / 2);
+  const y0 = Math.round(box.y + 20);
+  const at = (clientY) => new Touch({ identifier: 1, target: el, clientX: x, clientY });
+  const send = (type, clientY) => el.dispatchEvent(new TouchEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    touches: type === 'touchend' ? [] : [at(clientY)],
+    targetTouches: type === 'touchend' ? [] : [at(clientY)],
+    changedTouches: [at(clientY)],
+  }));
+  const shift = () => {
+    const t = getComputedStyle(el).transform;
+    return t === 'none' ? 0 : new DOMMatrixReadOnly(t).m42;
+  };
+  send('touchstart', y0);
+  send('touchmove', y0 + 10);
+  send('touchmove', y0 + 30);
+  const near = shift();
+  send('touchmove', y0 + 100);
+  const far = shift();
+  send('touchend', y0 + 100);
+  return { near, far };
+});
+check('指に付いて一覧そのものが下がる', tracked.near > 24 && tracked.near <= 30,
+  `指を30px動かして${tracked.near.toFixed(1)}px`);
+check('引くほど重くなる', tracked.far > tracked.near && tracked.far < 100,
+  `指を100px動かして${tracked.far.toFixed(1)}px`);
+await page.waitForFunction(
+  () => !document.getElementById('show-ptr').classList.contains('is-busy'),
+  null, { timeout: 8000 },
+);
+check('指を離すと一覧は元の位置へ戻る', await page.waitForFunction(
+  () => { const t = getComputedStyle(document.getElementById('episode-list')).transform;
+    return t === 'none' || Math.abs(new DOMMatrixReadOnly(t).m42) < 1; },
+  null, { timeout: 4000 },
+).then(() => true, () => false));
+
 // 深く引くと、開いたときと同じ新着の確認が走る
 const sixth = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">

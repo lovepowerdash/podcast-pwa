@@ -322,13 +322,28 @@ $('home-list').addEventListener('click', async (event) => {
 
 // ---- 引っ張って更新 ---------------------------------------------------------
 
-const PULL_THRESHOLD = 48;   // ここまで印が下りたら更新する
-const PULL_MAX = 76;         // それ以上は下りない（引き続けても青天井にしない）
-const PULL_DAMPING = 0.5;    // 指の動きの半分だけ印を動かす
+const PULL_THRESHOLD = 56;    // ここまで下りたら更新する
+const PULL_LIMIT = 120;      // 引き続けたときに近づいていく上限（ここで止まりはしない）
+const PULL_ICON = 34;        // 印の直径。空いた隙間の真ん中に置くために使う
 const PULL_MIN_SPIN_MS = 400; // 速く終わっても、回っているのが見える程度は残す
 
 /**
+ * 指の動きを、引っ張った量に変える。
+ *
+ * 最初は 1:1 で指に付いていき、引くほど重くなって PULL_LIMIT へ近づく。
+ * 一定の割合で減らすやり方だと、最初から指と中身がずれて動き、上限で壁に当たる。
+ * ゴムを引くような手応えにしたいので、頭打ちのある曲線にしている。
+ */
+function pullResistance(raw) {
+  if (raw <= 0) return 0;
+  return PULL_LIMIT * (1 - Math.exp(-raw / PULL_LIMIT));
+}
+
+/**
  * 一覧を下に引っ張ったときに onRefresh を呼ぶ。
+ *
+ * 一覧そのものを指に付いて下げ、空いた隙間に印を出す（iOS の標準と同じ手応え）。
+ * 動かすのは transform だけなので、一覧の中身を組み直すことにはならない。
  *
  * 横取りするのは「一番上にいるときの、下向きの動き」だけ。それ以外は普通のスクロールに
  * 任せるので、決まるまで preventDefault を呼ばない（呼ぶとスクロールが効かなくなる）。
@@ -341,22 +356,34 @@ function attachPullToRefresh(scrollEl, ptr, onRefresh) {
   let pulling = false;   // 引っ張りだと決まった（以降はスクロールさせない）
   let distance = 0;
   let busy = false;
+  let settleTimer = 0;
 
   function place(d) {
     distance = d;
-    icon.style.transform = `translate(-50%, ${d - PULL_THRESHOLD}px)`;
-    icon.style.opacity = String(Math.min(1, d / PULL_THRESHOLD));
+    scrollEl.style.transform = d > 0 ? `translateY(${d}px)` : '';
+    // 印は、一覧が下りて空いた隙間の真ん中に置く。隙間より大きくならないよう縮めておく
+    const grown = Math.min(1, d / PULL_THRESHOLD);
+    icon.style.transform = `translate(-50%, ${d / 2 - PULL_ICON / 2}px) scale(${0.4 + 0.6 * grown})`;
+    icon.style.opacity = String(Math.min(1, d / (PULL_THRESHOLD * 0.6)));
     ptr.classList.toggle('is-ready', !busy && d >= PULL_THRESHOLD);
   }
 
+  function settling(on) {
+    ptr.classList.toggle('is-settling', on);
+    scrollEl.classList.toggle('is-settling', on);
+  }
+
   function settle() {
-    ptr.classList.add('is-settling');
+    settling(true);
     place(0);
-    setTimeout(() => ptr.classList.remove('is-settling'), 220);
+    settleTimer = setTimeout(() => settling(false), 300);
   }
 
   scrollEl.addEventListener('touchstart', (event) => {
     if (busy || event.touches.length !== 1 || scrollEl.scrollTop > 0) return;
+    // 戻りの途中でまた引かれたら、補間をやめて指に付け直す
+    clearTimeout(settleTimer);
+    settling(false);
     tracking = true;
     pulling = false;
     startY = event.touches[0].clientY;
@@ -374,9 +401,9 @@ function attachPullToRefresh(scrollEl, ptr, onRefresh) {
       if (scrollEl.scrollTop > 0) { tracking = false; return; }
       pulling = true;
     }
-    // 端で跳ね返る既定の動きを止め、代わりに印を出す
+    // 端で跳ね返る既定の動きを止め、代わりに一覧ごと下げる
     event.preventDefault();
-    place(Math.min(PULL_MAX, dy * PULL_DAMPING));
+    place(pullResistance(dy));
   }, { passive: false });
 
   async function release() {
@@ -386,9 +413,11 @@ function attachPullToRefresh(scrollEl, ptr, onRefresh) {
     pulling = false;
     if (distance < PULL_THRESHOLD) { settle(); return; }
 
+    // 確かめている間は、更新する位置で一覧を下げたまま保つ（そこで印が回る）
     busy = true;
     ptr.classList.remove('is-ready');
-    ptr.classList.add('is-busy', 'is-settling');
+    ptr.classList.add('is-busy');
+    settling(true);
     place(PULL_THRESHOLD);
     const startedAt = Date.now();
     try {
