@@ -95,16 +95,23 @@
   <div class="scroll" id="search-list"></div>
 </section>
 
-<!-- ===== ミニプレイヤー（常時固定） ===== -->
+<!-- ===== ミニプレイヤー（常時固定） =====
+     鳴り始めたことがひと目で分かるよう、上端にシークバーを通し、
+     再生ボタンはフルプレイヤーと同じ塗りつぶしの丸にしてある。 -->
 <div class="mini" id="mini" hidden>
-  <a class="mini__tap" href="/player" aria-label="プレイヤーを開く">
-    <span class="mini__title" id="mini-title"></span>
-    <span class="mini__show" id="mini-show"></span>
-    <span class="mini__bar"><i id="mini-progress"></i></span>
-  </a>
-  <button class="mini__btn" id="mini-toggle" type="button" aria-label="再生 / 一時停止">
-    <svg viewBox="0 0 24 24" aria-hidden="true" id="mini-icon"><polygon points="7 4 20 12 7 20"/></svg>
-  </button>
+  <input class="mini__seek" id="mini-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="再生位置">
+  <div class="mini__row">
+    <a class="mini__tap" href="/player" aria-label="プレイヤーを開く">
+      <span class="mini__title" id="mini-title"></span>
+      <span class="mini__sub">
+        <span class="mini__show" id="mini-show"></span>
+        <span class="mini__time" id="mini-time">0:00 / 0:00</span>
+      </span>
+    </a>
+    <button class="mini__btn" id="mini-toggle" type="button" aria-label="再生 / 一時停止">
+      <svg viewBox="0 0 24 24" aria-hidden="true" id="mini-icon"><polygon points="7 4 20 12 7 20"/></svg>
+    </button>
+  </div>
 </div>
 
 <!-- ===== フルプレイヤー（オーバーレイ / 作り込みは最小限） ===== -->
@@ -150,7 +157,8 @@
     <p>ホーム画面の右上にある虫めがねから番組名で検索し、「フォロー」を押します。そのままエピソード一覧へ移動します。</p>
 
     <h2>聴く</h2>
-    <p>エピソードをタップすると再生が始まり、画面下部にミニプレイヤーが出ます。ミニプレイヤーをタップすると、シークバーや再生速度のある画面に切り替わります。</p>
+    <p>エピソードをタップすると再生が始まり、画面下部にミニプレイヤーが出ます。上端のシークバーが伸びていくので、鳴り始めたかどうかはここで分かります。右端の丸いボタンで再生と一時停止、シークバーを指でつまめば聴きたいところへ移動できます。</p>
+    <p>ミニプレイヤーの題名の側をタップすると、大きなシークバーと15秒スキップ、再生速度のある画面に切り替わります。</p>
     <p>途中でやめても再生位置は保存されます。同じ回をもう一度タップすれば続きから再生されます。</p>
 
     <h2>並び替える</h2>

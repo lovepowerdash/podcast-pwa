@@ -23,6 +23,7 @@ const show = {
 };
 
 let seeking = false;       // シークバー操作中は再生位置の自動反映を止める
+let miniSeeking = false;   // 同上。ミニプレイヤーのシークバー用
 let lastScreenPath = '/';  // 重ねて出す画面を閉じたときに戻る先
 
 // ---- 画面切り替え ----------------------------------------------------------
@@ -717,7 +718,8 @@ function renderPlayer(state) {
 
   $('mini-title').textContent = episode.title;
   $('mini-show').textContent = episode.showTitle || '';
-  $('mini-progress').style.width = duration > 0 ? `${(position / duration) * 100}%` : '0%';
+  $('mini-time').textContent = `${formatTime(position)} / ${formatTime(duration)}`;
+  if (!miniSeeking) setMiniSeek(duration > 0 ? (position / duration) * 1000 : 0);
   setPlayIcon($('mini-icon'), playing);
 
   if ($('player').hidden) return;
@@ -730,6 +732,13 @@ function renderPlayer(state) {
   }
   $('player-rate').textContent = `${rate.toFixed(2).replace(/0$/, '').replace(/\.$/, '.0')}x`;
   setPlayIcon($('player-icon'), playing);
+}
+
+/** ミニプレイヤーのシークバーの位置と、再生済みぶんの塗りを合わせる */
+function setMiniSeek(value) {
+  const seek = $('mini-seek');
+  seek.value = Math.round(value);
+  seek.style.setProperty('--fill', `${value / 10}%`);
 }
 
 function setPlayIcon(svg, playing) {
@@ -746,6 +755,22 @@ $('player-rate').addEventListener('click', () => player.cycleRate());
 $('player-close').addEventListener('click', () => {
   if (location.pathname === '/player') history.back();
   else openFullPlayer(false);
+});
+
+// ミニプレイヤーのシークバー。掴んでいる間は自動反映を止め、時間表示だけ先に動かす
+$('mini-seek').addEventListener('input', () => {
+  miniSeeking = true;
+  const { duration } = player.getState();
+  const value = Number($('mini-seek').value);
+  $('mini-seek').style.setProperty('--fill', `${value / 10}%`);
+  if (duration > 0) {
+    $('mini-time').textContent = `${formatTime((value / 1000) * duration)} / ${formatTime(duration)}`;
+  }
+});
+$('mini-seek').addEventListener('change', () => {
+  const { duration } = player.getState();
+  if (duration > 0) player.seekTo((Number($('mini-seek').value) / 1000) * duration);
+  miniSeeking = false;
 });
 
 $('player-seek').addEventListener('input', () => { seeking = true; });
