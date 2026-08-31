@@ -13,6 +13,15 @@
 const MAX_DIFF_ITEMS = 200;
 
 /**
+ * XMLの中では & < > が実体参照で書かれている。解析後の文字列（端末が送ってくる目印）を
+ * そのまま探しても見つからないので、書かれているままの形にも直して両方で探す。
+ */
+function markerForms(after) {
+  const escaped = after.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return escaped === after ? [after] : [after, escaped];
+}
+
+/**
  * 既知の回（after）より新しい <item> だけを抜き出して返す。
  * XMLを組み立て直さず、元の item をそのまま並べるので解析結果は変わらない。
  * 目印が見つからなければ null を返し、呼び出し側が全体を返す。
@@ -21,10 +30,13 @@ const MAX_DIFF_ITEMS = 200;
  * 古い順に並ぶフィードでは古い回ばかりを拾うことになるが、端末側が手持ちと
  * 突き合わせて捨てるので、無駄な転送が起きるだけで表示は壊れない。
  *
+ * 本文は呼び出し側が読み終えた文字列で受け取る。Responseを渡して中で読むと、
+ * 差分にできなかったときに全体を返す道が塞がれてしまうため（本文は一度しか読めない）。
+ *
  * test/function.mjs から呼べるようexportしてある。
  */
-export async function extractNewItems(upstream, after) {
-  const text = await upstream.text();
+export function extractNewItems(text, after, upstreamHeaders = new Headers()) {
+  const markers = markerForms(after);
 
   const items = [];
   let found = false;
@@ -32,7 +44,7 @@ export async function extractNewItems(upstream, after) {
   let match = pattern.exec(text);
   while (match) {
     // guid か音声URLがそのまま含まれていれば、そこから先は端末が既に持っている
-    if (match[0].includes(after)) { found = true; break; }
+    if (markers.some((marker) => match[0].includes(marker))) { found = true; break; }
     items.push(match[0]);
     if (items.length > MAX_DIFF_ITEMS) break;
     match = pattern.exec(text);
@@ -53,11 +65,17 @@ ${items.join('\n')}
     // 端末側はこの印を見て、置き換えではなく手持ちへの追加として扱う
     'x-feed-partial': '1',
   });
-  const etag = upstream.headers.get('etag');
-  const modified = upstream.headers.get('last-modified');
-  if (etag) headers.set('x-feed-etag', etag);
-  if (modified) headers.set('x-feed-modified', modified);
+  copyValidators(upstreamHeaders, headers);
   return new Response(body, { status: 200, headers });
+}
+
+/** 次回の問い合わせに使う印を、本文とは別に渡す（同一オリジンなので素通しで読める） */
+function copyValidators(from, to) {
+  const etag = from.get('etag');
+  const modified = from.get('last-modified');
+  if (etag) to.set('x-feed-etag', etag);
+  if (modified) to.set('x-feed-modified', modified);
+  return to;
 }
 
 export async function onRequestGet({ request }) {
@@ -103,22 +121,27 @@ export async function onRequestGet({ request }) {
 
   // 差分だけを返す。RSSに部分取得の仕組みは無いので、ここで新しい回だけ切り出す。
   // 配信元との通信は全体のままだが、端末が受け取る量は増えた分だけで済む。
+  //
+  // 目印が見つからないこと（実体参照つきの guid、古い順に並ぶフィードなど）は珍しくない。
+  // その場合は全体を返すので、本文はここで読み切っておく。読んだ本文を使い回さず
+  // upstream.body を返すと「本文は一度しか読めない」で中継ごと落ち、端末には
+  // エラーだけが届く（引っ張って更新しても新着が出てこない原因になる）。
   const after = params.get('after');
   if (after && upstream.ok) {
-    const diff = await extractNewItems(upstream, after);
+    const text = await upstream.text();
+    const diff = extractNewItems(text, after, upstream.headers);
     if (diff) return diff;
+    return new Response(text, { status: upstream.status, headers: outHeaders(upstream) });
   }
 
-  // 次回の問い合わせに使う印を、本文とは別に渡す（同一オリジンなので素通しで読める）
-  const out = new Headers({
+  // ボディはストリームのまま返すので、フィードが大きくてもメモリ上限に当たらない
+  return new Response(upstream.body, { status: upstream.status, headers: outHeaders(upstream) });
+}
+
+/** 全体をそのまま返すときの応答ヘッダー */
+function outHeaders(upstream) {
+  return copyValidators(upstream.headers, new Headers({
     'content-type': upstream.headers.get('content-type') || 'application/xml',
     'cache-control': 'no-store',
-  });
-  const upstreamEtag = upstream.headers.get('etag');
-  const upstreamModified = upstream.headers.get('last-modified');
-  if (upstreamEtag) out.set('x-feed-etag', upstreamEtag);
-  if (upstreamModified) out.set('x-feed-modified', upstreamModified);
-
-  // ボディはストリームのまま返すので、フィードが大きくてもメモリ上限に当たらない
-  return new Response(upstream.body, { status: upstream.status, headers: out });
+  }));
 }

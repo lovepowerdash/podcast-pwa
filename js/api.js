@@ -159,15 +159,11 @@ export async function revalidateFeed(feedUrl) {
   try {
     res = await fetchWithTimeout(RELAY_SOURCE.build(feedUrl) + (query.length ? `&${query.join('&')}` : ''));
   } catch {
-    return { changed: false };
+    return refetchWhole(feedUrl, cache);
   }
 
-  // 中継が使えない環境（静的ホスティングのみなど）では、期限切れのときだけ取り直す
-  if (!res.ok && res.status !== 204) {
-    if (!cache || Date.now() - cache.cachedAt < cache.ttl * 1000) return { changed: false };
-    const { feedTitle, episodes } = await fetchAndStore(feedUrl);
-    return { changed: !cache || !sameEpisodes(cache.rawEpisodes, episodes), episodes, feedTitle };
-  }
+  // 中継が使えない環境（静的ホスティングのみなど）や、中継が答えを返せなかったとき
+  if (!res.ok && res.status !== 204) return refetchWhole(feedUrl, cache);
 
   if (res.status === 204) return { changed: false }; // 配信元が「変わっていない」と答えた
 
@@ -191,6 +187,26 @@ export async function revalidateFeed(feedUrl) {
   }
 
   await storeFeed(feedUrl, episodes, validators);
+  if (cache && sameEpisodes(cache.rawEpisodes, episodes)) return { changed: false };
+  return { changed: true, episodes, feedTitle };
+}
+
+/**
+ * 条件付きの問い合わせで答えが得られなかったときの取り直し。
+ *
+ * 中継が落ちている・そもそも無いといった理由で確かめられないことがあるが、そこで
+ * 「変わっていない」と答えてしまうと、引っ張って更新しても新着が出てこない。
+ * 更新の確認は利用者が求めたときにだけ走るので、期限内かどうかに関わらず、
+ * 通常の取得経路（公開プロキシを含む全経路）で取り直して手持ちと突き合わせる。
+ */
+async function refetchWhole(feedUrl, cache) {
+  let fetched;
+  try {
+    fetched = await fetchAndStore(feedUrl);
+  } catch {
+    return { changed: false }; // どの経路でも取れないなら、表示済みの内容をそのまま使う
+  }
+  const { feedTitle, episodes } = fetched;
   if (cache && sameEpisodes(cache.rawEpisodes, episodes)) return { changed: false };
   return { changed: true, episodes, feedTitle };
 }

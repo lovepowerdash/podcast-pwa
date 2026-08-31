@@ -63,9 +63,10 @@ const browser = await chromium.launch({
   args: ['--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage();
-// net::ERR_FAILED はテストが意図的に abort した経路のもの（フォールバック検証）なので除く
+// net::ERR_FAILED と 500 は、テストが意図的に失敗させた経路のもの（フォールバックの検証）なので除く
+const deliberate = /net::ERR_FAILED|status of 500/;
 page.on('console', (m) => {
-  if (m.type() === 'error' && !m.text().includes('net::ERR_FAILED')) fail.push(`console: ${m.text()}`);
+  if (m.type() === 'error' && !deliberate.test(m.text())) fail.push(`console: ${m.text()}`);
 });
 page.on('pageerror', (e) => fail.push(`pageerror: ${e.message}`));
 
@@ -633,6 +634,32 @@ await page.waitForFunction(
   () => !document.getElementById('show-ptr').classList.contains('is-busy'),
   null, { timeout: 8000 },
 );
+
+// 中継が答えを返せなくても、引っ張って更新なら他の経路で取り直す。
+// 「確かめられなかった」を「変わっていない」として扱うと、新着があっても出てこない。
+const sevenFeed = readFileSync(`${FX}/feed.xml`, 'utf8').replace('</channel>', `${[4, 5, 6, 7].map((n) => `
+    <item>
+      <title>第${n}回</title>
+      <guid>ep-${n}</guid>
+      <pubDate>Tue, ${n + 22} Mar 2024 09:00:00 +0900</pubDate>
+      <itunes:duration>10:00</itunes:duration>
+      <enclosure url="http://localhost:8099/__audio/ep${n}.wav" type="audio/wav" length="1000"/>
+    </item>`).join('')}
+  </channel>`);
+await page.unroute('**/api/feed*');
+await page.route('**/api/feed*', (route) => route.fulfill({ status: 500, body: 'relay down' }));
+await page.unroute('**api.allorigins.win**');
+await page.route('**api.allorigins.win**', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: sevenFeed }));
+await pull('#episode-list', 160);
+await page.waitForFunction(() => document.querySelectorAll('[data-episode]').length === 7, null, { timeout: 8000 }).catch(() => {});
+check('中継が答えられなくても引っ張れば新着が出る', (await page.locator('[data-episode]').count()) === 7,
+  `${await page.locator('[data-episode]').count()}件`);
+await page.waitForFunction(
+  () => !document.getElementById('show-ptr').classList.contains('is-busy'),
+  null, { timeout: 8000 },
+);
+await page.unroute('**api.allorigins.win**');
+await page.route('**api.allorigins.win**', (route) => route.fulfill({ status: 200, contentType: 'application/xml', body: readFileSync(`${FX}/feed.xml`, 'utf8') }));
 
 // ホームは普段ネットワークに触らないので、引いたときだけ全番組を確かめに行く
 await page.click('#screen-show a[href="/"]');
