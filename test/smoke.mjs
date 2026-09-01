@@ -822,6 +822,42 @@ check('聴き終えた回で再生を押すと頭から鳴る', await page.evalu
 check('送り先が無いので回は変わらない', (await page.textContent('#mini-title')) === lastTitle, await page.textContent('#mini-title'));
 await page.evaluate(() => document.getElementById('audio').pause());
 
+// --- 画面を消したままイヤホンで一時停止 → 再生。iOS は背面のPWAが読み込み済みの音声を
+//     捨てることがあり、そのときの play() は拒否も error も返さないまま握り潰される。
+//     拒否を待っているだけでは永久に鳴らないので、鳴り始めたかを見張って載せ直す。
+await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
+await page.waitForSelector('[data-episode]');
+await page.click('[data-episode] >> nth=0');
+await page.waitForFunction(() => document.getElementById('audio').currentTime > 4, null, { timeout: 8000 });
+await page.evaluate(() => {
+  // 次の play() を1回だけ握り潰す（返事を返さず、鳴りもしない）
+  const proto = HTMLMediaElement.prototype;
+  const original = proto.play;
+  let swallowed = false;
+  proto.play = function play(...args) {
+    if (swallowed) return original.apply(this, args);
+    swallowed = true;
+    return new Promise(() => {});
+  };
+  window.__restorePlay = () => { proto.play = original; };
+});
+await page.click('#mini-toggle'); // イヤホンの一時停止に相当
+await page.waitForTimeout(300);
+check('イヤホンの操作で一時停止できる', await page.evaluate(() => document.getElementById('audio').paused));
+const pausedAt = await page.evaluate(() => document.getElementById('audio').currentTime);
+await page.click('#mini-toggle'); // イヤホンの再生に相当（1回目の play() は握り潰される）
+// 載せ直しは非同期なので、鳴り始めて位置が戻るところまで待つ
+await page.waitForFunction((pos) => {
+  const a = document.getElementById('audio');
+  return !a.paused && a.currentTime >= pos - 0.5;
+}, pausedAt, { timeout: 8000 }).catch(() => {});
+check('握り潰された再生を載せ直して鳴らし直す', await page.evaluate(() => !document.getElementById('audio').paused),
+  await page.evaluate(() => `paused=${document.getElementById('audio').paused}`));
+check('鳴らし直しても頭に戻らない',
+  await page.evaluate((pos) => document.getElementById('audio').currentTime >= pos - 0.5, pausedAt),
+  await page.evaluate((pos) => `t=${document.getElementById('audio').currentTime.toFixed(1)} 停止=${pos.toFixed(1)}`, pausedAt));
+await page.evaluate(() => { window.__restorePlay?.(); document.getElementById('audio').pause(); });
+
 // --- Service Worker / manifest
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));
 const manifest = await (await page.request.get('http://localhost:8099/manifest.webmanifest')).json();
