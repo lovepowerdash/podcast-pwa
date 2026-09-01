@@ -17,7 +17,8 @@ let readRevision = 0;    // 既読フラグを書き込むたびに増える。�
 let autoAdvancing = false;   // いま自動送りの最中か
 let autoAdvanceBlocked = null; // 自動送りがブラウザに拒否された理由（UIで知らせる）
 let advancedFrom = null;     // 送り済みのepisodeId。二重に送らないための目印
-let userPaused = false;      // 直前の一時停止が利用者の操作によるものか
+let userPaused = false;      // 直前の一時停止がアプリ内の操作によるものか
+                             // （ロック画面からの停止はブラウザ任せなので立たない）
 let lastPosition = 0;        // 最後に確かに鳴っていた位置。音源を捨てられた後の載せ直しに使う
 let resumeWatchdog = 0;      // 再開が実際に始まったかを見張るタイマー
 
@@ -158,11 +159,29 @@ function jump(offset) {
   if (target) play(target, current.showTitle, target.resumeAt || 0);
 }
 
+/**
+ * ロック画面・コントロールセンター・Bluetoothイヤホンからの操作を受け取る。
+ *
+ * 再生と一時停止のハンドラは、あえて登録しない。
+ *
+ * ハンドラを登録すると、その操作は「ページのJavaScriptを動かして処理するもの」に変わる。
+ * ところが iOS は、画面を消したまま一時停止して数十秒ほど経つと背面のPWAを眠らせるため、
+ * イヤホンの再生ボタンを押してもハンドラが呼ばれず、押しても何も起きないまま終わる
+ * （iOS 側の既知の問題。前面に戻すまで直らない）。
+ * 登録しなければブラウザが <audio> を直接鳴らすので、ページが眠っていても再生が始まる。
+ *
+ * 手放しても取りこぼさない。再生位置の保存も画面の更新も、ハンドラではなく
+ * <audio> の play / pause イベントの側で行っているため。
+ * 押しても何も起きない状態のうち、ブラウザ任せで困るものも無い。
+ *   - 音源を載せていない（起動直後の復元）— ページを読み直した後はロック画面の
+ *     操作先そのものが無いので、この経路には来ない（アプリ内の再生ボタンは resume を通る）
+ *   - 聴き終えた回で止まっている — 既定の play() は終端なら頭に戻してから鳴らす
+ */
 function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
   const handlers = {
-    play: () => resume(),
-    pause: () => { userPaused = true; audio.pause(); },
+    play: null,
+    pause: null,
     seekbackward: (details) => seekBy(-(details?.seekOffset || SEEK_SECONDS)),
     seekforward: (details) => seekBy(details?.seekOffset || SEEK_SECONDS),
     seekto: (details) => { if (details?.seekTime != null) seekTo(details.seekTime); },
@@ -251,8 +270,8 @@ function startPlayback(targetId, allowRearm = true) {
 }
 
 /**
- * 一時停止からの再開。ミニプレイヤーの再生ボタンと、ロック画面／コントロールセンターや
- * Bluetoothイヤホンの再生ボタンはここを通る。
+ * 一時停止からの再開。アプリ内の再生ボタン（ミニプレイヤー／フルプレイヤー）がここを通る。
+ * ロック画面やイヤホンからの再生はブラウザ任せなので、ここは通らない（setupMediaSession）。
  *
  * 押しても何も起きない状態が4つあるので、ここで拾って必ず音を出す。
  *   1. 起動直後 — 続きを読み戻しただけで、まだ音源を載せていない

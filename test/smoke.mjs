@@ -822,8 +822,30 @@ check('聴き終えた回で再生を押すと頭から鳴る', await page.evalu
 check('送り先が無いので回は変わらない', (await page.textContent('#mini-title')) === lastTitle, await page.textContent('#mini-title'));
 await page.evaluate(() => document.getElementById('audio').pause());
 
-// --- 画面を消したままイヤホンで一時停止 → 再生。iOS は背面のPWAが読み込み済みの音声を
-//     捨てることがあり、そのときの play() は拒否も error も返さないまま握り潰される。
+// --- 再生／一時停止はブラウザの既定の動作に任せる（自前のハンドラを登録しない）。
+//     登録すると、iOS では画面を消したまま止めた後にPWAが眠らされ、イヤホンの再生ボタンを
+//     押してもハンドラが呼ばれないまま何も起きなくなる（前面に戻すまで直らない）。
+await page.addInitScript(() => {
+  const original = MediaSession.prototype.setActionHandler;
+  window.__actionHandlers = {};
+  MediaSession.prototype.setActionHandler = function setActionHandler(action, handler) {
+    window.__actionHandlers[action] = typeof handler;
+    return original.call(this, action, handler);
+  };
+});
+await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
+await page.waitForSelector('[data-episode]');
+check('再生／一時停止をブラウザに任せている（自前のハンドラを持たない）',
+  await page.evaluate(() => window.__actionHandlers.play !== 'function'
+    && window.__actionHandlers.pause !== 'function'),
+  await page.evaluate(() => JSON.stringify(window.__actionHandlers)));
+check('シークと前後送りは自前で受け取る',
+  await page.evaluate(() => ['seekforward', 'seekbackward', 'seekto', 'nexttrack', 'previoustrack']
+    .every((a) => window.__actionHandlers[a] === 'function')),
+  await page.evaluate(() => JSON.stringify(window.__actionHandlers)));
+
+// --- アプリ内の再生ボタンからの再開。iOS は背面のPWAが読み込み済みの音声を捨てることがあり、
+//     そのときの play() は拒否も error も返さないまま握り潰される。
 //     拒否を待っているだけでは永久に鳴らないので、鳴り始めたかを見張って載せ直す。
 await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
 await page.waitForSelector('[data-episode]');
