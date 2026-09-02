@@ -872,6 +872,47 @@ check('ロック画面からの再生でも続きから鳴る',
   await page.evaluate((pos) => `t=${document.getElementById('audio').currentTime.toFixed(1)} 停止=${pos.toFixed(1)}`, remotePausedAt));
 await page.evaluate(() => document.getElementById('audio').pause());
 
+// --- 音声の扱いを「再生用」と宣言する。既定(auto)は iOS で ambient（環境音）扱いになることがあり、
+//     ambient は画面を消すと消音される種別なので「再生マークになりシークバーも進むのに音だけ出ない」
+//     という状態になる。playback にしておくと画面を消しても消音されない。
+await page.addInitScript(() => {
+  // Chromium には Audio Session API が無いので、宣言していることだけを確かめられるようにする
+  Object.defineProperty(navigator, 'audioSession', {
+    value: { type: 'auto', state: 'inactive' }, configurable: true,
+  });
+});
+await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
+await page.waitForSelector('[data-episode]');
+check('起動時に音声セッションを再生用と宣言する',
+  await page.evaluate(() => navigator.audioSession.type === 'playback'),
+  await page.evaluate(() => navigator.audioSession.type));
+// セッションは作り直されることがあるため、鳴らす操作のたびに宣言し直す
+await page.click('[data-episode] >> nth=0');
+await page.waitForFunction(() => document.getElementById('audio').currentTime > 1, null, { timeout: 8000 });
+await page.evaluate(() => { navigator.audioSession.type = 'auto'; });
+await page.evaluate(() => window.__actionHandlers.pause());
+await page.waitForTimeout(200);
+await page.evaluate(() => window.__actionHandlers.play());
+check('ロック画面から鳴らすときも宣言し直す',
+  await page.evaluate(() => navigator.audioSession.type === 'playback'),
+  await page.evaluate(() => navigator.audioSession.type));
+await page.evaluate(() => { navigator.audioSession.type = 'auto'; });
+await page.click('#mini-toggle'); // アプリ内で一時停止
+await page.click('#mini-toggle'); // アプリ内で再生
+check('アプリ内の再生ボタンでも宣言し直す',
+  await page.evaluate(() => navigator.audioSession.type === 'playback'),
+  await page.evaluate(() => navigator.audioSession.type));
+await page.evaluate(() => document.getElementById('audio').pause());
+// 実機の切り分けは版表示をタップして出す記録が頼りなので、セッションの状態もそこに出す
+await page.goto('http://localhost:8099/', { waitUntil: 'networkidle' });
+let diagText = '';
+page.once('dialog', (d) => { diagText = d.message(); d.accept(); });
+await page.click('#version');
+await page.waitForFunction(() => true);
+check('記録に音声セッションの状態が出る',
+  diagText.includes('音声セッション: playback'),
+  diagText.split('\n').find((line) => line.startsWith('音声セッション')) || diagText);
+
 // --- アプリ内の再生ボタンからの再開。iOS は背面のPWAが読み込み済みの音声を捨てることがあり、
 //     そのときの play() は拒否も error も返さないまま握り潰される。
 //     拒否を待っているだけでは永久に鳴らないので、鳴り始めたかを見張って載せ直す。
