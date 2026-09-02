@@ -822,27 +822,55 @@ check('聴き終えた回で再生を押すと頭から鳴る', await page.evalu
 check('送り先が無いので回は変わらない', (await page.textContent('#mini-title')) === lastTitle, await page.textContent('#mini-title'));
 await page.evaluate(() => document.getElementById('audio').pause());
 
-// --- 再生／一時停止はブラウザの既定の動作に任せる（自前のハンドラを登録しない）。
-//     登録すると、iOS では画面を消したまま止めた後にPWAが眠らされ、イヤホンの再生ボタンを
-//     押してもハンドラが呼ばれないまま何も起きなくなる（前面に戻すまで直らない）。
+// --- ロック画面／イヤホンからの操作。ハンドラを登録しないと、操作は直前に鳴らしていた
+//     別のアプリ（ミュージックなど）へ渡ってしまうため、必ず自分で受け取る。
+//     そのうえで再生は <audio> をそのまま鳴らすだけにする。src を代入して音源を載せ直すと、
+//     WebKit が再生セッションを作り直し、背面では「今再生中」の役目を手放してしまう。
 await page.addInitScript(() => {
   const original = MediaSession.prototype.setActionHandler;
   window.__actionHandlers = {};
   MediaSession.prototype.setActionHandler = function setActionHandler(action, handler) {
-    window.__actionHandlers[action] = typeof handler;
+    window.__actionHandlers[action] = handler;
     return original.call(this, action, handler);
   };
 });
 await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
 await page.waitForSelector('[data-episode]');
-check('再生／一時停止をブラウザに任せている（自前のハンドラを持たない）',
-  await page.evaluate(() => window.__actionHandlers.play !== 'function'
-    && window.__actionHandlers.pause !== 'function'),
-  await page.evaluate(() => JSON.stringify(window.__actionHandlers)));
-check('シークと前後送りは自前で受け取る',
+const handlerTypes = () => page.evaluate(() => Object.fromEntries(
+  Object.entries(window.__actionHandlers).map(([a, h]) => [a, typeof h])));
+check('再生と一時停止を自分で受け取る（別のアプリへ渡さない）',
+  await page.evaluate(() => typeof window.__actionHandlers.play === 'function'
+    && typeof window.__actionHandlers.pause === 'function'),
+  JSON.stringify(await handlerTypes()));
+check('シークと前後送りも自分で受け取る',
   await page.evaluate(() => ['seekforward', 'seekbackward', 'seekto', 'nexttrack', 'previoustrack']
-    .every((a) => window.__actionHandlers[a] === 'function')),
-  await page.evaluate(() => JSON.stringify(window.__actionHandlers)));
+    .every((a) => typeof window.__actionHandlers[a] === 'function')),
+  JSON.stringify(await handlerTypes()));
+
+// ロック画面からの一時停止 → 再生を、実際にハンドラを呼んで確かめる。
+// emptied は音源を載せ直したときに出るので、1度も出ないことをもって
+// 「セッションを作り直していない」ことを確かめる。
+await page.click('[data-episode] >> nth=0');
+await page.waitForFunction(() => document.getElementById('audio').currentTime > 4, null, { timeout: 8000 });
+await page.evaluate(() => {
+  window.__emptied = 0;
+  document.getElementById('audio').addEventListener('emptied', () => { window.__emptied += 1; });
+});
+await page.evaluate(() => window.__actionHandlers.pause());
+await page.waitForTimeout(300);
+check('ロック画面の一時停止で止まる', await page.evaluate(() => document.getElementById('audio').paused));
+const remotePausedAt = await page.evaluate(() => document.getElementById('audio').currentTime);
+await page.evaluate(() => window.__actionHandlers.play());
+await page.waitForFunction(() => !document.getElementById('audio').paused, null, { timeout: 8000 }).catch(() => {});
+check('ロック画面の再生で鳴り出す', await page.evaluate(() => !document.getElementById('audio').paused),
+  await page.evaluate(() => `paused=${document.getElementById('audio').paused}`));
+check('ロック画面からの再生では音源を載せ直さない（セッションを手放さない）',
+  await page.evaluate(() => window.__emptied === 0),
+  await page.evaluate(() => `emptied=${window.__emptied}`));
+check('ロック画面からの再生でも続きから鳴る',
+  await page.evaluate((pos) => document.getElementById('audio').currentTime >= pos - 0.5, remotePausedAt),
+  await page.evaluate((pos) => `t=${document.getElementById('audio').currentTime.toFixed(1)} 停止=${pos.toFixed(1)}`, remotePausedAt));
+await page.evaluate(() => document.getElementById('audio').pause());
 
 // --- アプリ内の再生ボタンからの再開。iOS は背面のPWAが読み込み済みの音声を捨てることがあり、
 //     そのときの play() は拒否も error も返さないまま握り潰される。
