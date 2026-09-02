@@ -35,11 +35,19 @@ const eventLog = [];
  * 「鳴っているのに進まない」ときに、音源を捨てられたのか（0秒）、
  * データはあるのに出ていないのか（数十秒）を後から見分けるための手がかり。
  */
+function bufferedSeconds() {
+  try {
+    const ranges = audio.buffered;
+    if (!ranges || ranges.length === 0) return 0;
+    return Math.max(0, ranges.end(ranges.length - 1) - audio.currentTime);
+  } catch { return 0 }
+}
+
 function bufferedAhead() {
   try {
     const ranges = audio.buffered;
     if (!ranges || ranges.length === 0) return '-';
-    return `${Math.max(0, ranges.end(ranges.length - 1) - audio.currentTime).toFixed(0)}`;
+    return `${bufferedSeconds().toFixed(0)}`;
   } catch { return '?' }
 }
 
@@ -198,7 +206,7 @@ function jump(offset) {
 function playFromRemote() {
   if (!current) return;
   userPaused = false;
-  claimPlaybackSession();
+  claimPlaybackSession({ force: true });
   const promise = audio.play();
   if (promise) promise.catch((err) => { log('remote-play-rejected', err?.name || ''); emit(); });
   watchForProgress();
@@ -216,12 +224,16 @@ function playFromRemote() {
  * 鳴らす前に宣言しておく必要があるため、起動時と、鳴らす操作のたびに呼ぶ
  * （すでに playback なら何もしない）。
  */
-function claimPlaybackSession() {
+function claimPlaybackSession({ force = false } = {}) {
   const session = navigator.audioSession;
-  if (!session || session.type === 'playback') return;
+  if (!session) return;
+  // 背面から鳴らすときは、すでに playback でも宣言し直す。
+  // iOS は一時停止でオーディオセッションを落とすので、これで起き直さないかを試している
+  // （Web にはセッションを自分で有効化する手段が無い。効かなければ打つ手は無い）。
+  if (!force && session.type === 'playback') return;
   try {
     session.type = 'playback';
-    log('audio-session', 'playback');
+    log('audio-session', force ? 'playback(再宣言)' : 'playback');
   } catch { /* 未対応の環境では黙って無視する */ }
 }
 
@@ -336,6 +348,12 @@ function watchForProgress() {
     stallWatch = 0;
     if (audio.paused || userPaused || !current) return;   // もう鳴らす気が無い
     if (audio.currentTime > startedAt + 0.05) { stallNudges = 0; return; }  // 進んでいる
+    if (bufferedSeconds() > 1) {
+      // データは手元にあるのに位置が進まない。取得ではなく音声の出口が動いていない
+      // （iOS は背面ではオーディオセッションを起こし直せない）。動かしても意味が無いので何もしない。
+      log('no-output', `b${bufferedAhead()}`);
+      return;
+    }
     if (stallNudges >= 2) { log('stall-give-up'); return; }
     stallNudges += 1;
     log('stall-nudge', `#${stallNudges}`);
@@ -533,7 +551,6 @@ audio.addEventListener('pause', () => {
   if (!userPaused && isAtEnd()) finishAndAdvance('pause');
 });
 audio.addEventListener('timeupdate', () => {
-  if (!audio.paused) stallNudges = 0;
   remember();
   persist();
   emit();
