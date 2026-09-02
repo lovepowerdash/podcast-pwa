@@ -925,17 +925,24 @@ await page.waitForSelector('[data-episode]');
 await page.click('[data-episode] >> nth=0');
 await page.waitForFunction(() => document.getElementById('audio').currentTime > 2, null, { timeout: 8000 });
 await page.evaluate(() => {
-  // currentTime への書き込みを記録する。__freeze に数値を入れると位置が進まない状態を作れる
+  // currentTime への書き込みを記録する。__freeze で位置が進まない状態を、
+  // __emptyBuffered で手元にデータが無い状態を作れるようにする
   const a = document.getElementById('audio');
-  const real = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+  const realTime = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+  const realBuffered = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'buffered');
   window.__seekWrites = [];
   window.__freeze = null;
+  window.__emptyBuffered = false;
   Object.defineProperty(a, 'currentTime', {
     configurable: true,
-    get: () => (window.__freeze === null ? real.get.call(a) : window.__freeze),
-    set: (v) => { window.__seekWrites.push(v); real.set.call(a, v); },
+    get: () => (window.__freeze === null ? realTime.get.call(a) : window.__freeze),
+    set: (v) => { window.__seekWrites.push(v); realTime.set.call(a, v); },
   });
-  window.__restoreTime = () => { delete a.currentTime; };
+  Object.defineProperty(a, 'buffered', {
+    configurable: true,
+    get: () => (window.__emptyBuffered ? { length: 0 } : realBuffered.get.call(a)),
+  });
+  window.__restoreProbes = () => { delete a.currentTime; delete a.buffered; };
 });
 await page.evaluate(() => window.__actionHandlers.pause());
 await page.evaluate(() => window.__actionHandlers.play());
@@ -944,16 +951,38 @@ check('鳴って進んでいる間は立て直しを試さない',
   await page.evaluate(() => window.__seekWrites.length === 0),
   await page.evaluate(() => `書き込み=${JSON.stringify(window.__seekWrites)}`));
 
+// 手元にデータが無いまま位置が進まない ＝ 取得が止まっている。少し動かしてやり直させる
 await page.evaluate(() => window.__actionHandlers.pause());
-await page.evaluate(() => { window.__freeze = document.getElementById('audio').currentTime; });
+await page.evaluate(() => {
+  window.__freeze = document.getElementById('audio').currentTime;
+  window.__emptyBuffered = true;
+});
 await page.evaluate(() => window.__actionHandlers.play());
 await page.waitForTimeout(3200);
-check('位置が進まないときは少し動かして取得をやり直す',
+check('データが無いまま進まないときは少し動かして取得をやり直す',
   await page.evaluate(() => window.__seekWrites.length >= 1),
+  await page.evaluate(() => `書き込み=${JSON.stringify(window.__seekWrites)}`));
+// 自分で動かすと timeupdate が出る。それで回数を数え直すと、いつまでも動かし続けてしまう
+await page.waitForTimeout(6000);
+check('立て直しは2回で打ち切る（動かし続けない）',
+  await page.evaluate(() => window.__seekWrites.length === 2),
+  await page.evaluate(() => `書き込み=${window.__seekWrites.length}回`));
+
+// データはあるのに進まない ＝ 音声の出口が動いていない。動かしても意味が無いので何もしない
+await page.evaluate(() => window.__actionHandlers.pause());
+await page.evaluate(() => {
+  window.__emptyBuffered = false;
+  window.__seekWrites.length = 0;
+  window.__freeze = document.getElementById('audio').currentTime;
+});
+await page.evaluate(() => window.__actionHandlers.play());
+await page.waitForTimeout(3200);
+check('データがあるのに進まないときは何もしない（出口の問題なので効かない）',
+  await page.evaluate(() => window.__seekWrites.length === 0),
   await page.evaluate(() => `書き込み=${JSON.stringify(window.__seekWrites)}`));
 await page.evaluate(() => {
   window.__freeze = null;
-  window.__restoreTime();
+  window.__restoreProbes();
   document.getElementById('audio').pause();
 });
 
