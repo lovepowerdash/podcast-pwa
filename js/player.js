@@ -2,7 +2,10 @@
 // 再生制御。HTML <audio> + Media Session API。
 // バックグラウンド／ロック画面からの操作はここで全部受ける。
 // ---------------------------------------------------------------------------
-import { SEEK_SECONDS, POSITION_SAVE_INTERVAL_MS, READ_RATIO, PLAYBACK_RATES, RESUME_RETRY_MS } from './config.js';
+import {
+  SEEK_SECONDS, POSITION_SAVE_INTERVAL_MS, READ_RATIO, PLAYBACK_RATES,
+  RESUME_RETRY_MS, STALL_CHECK_MS,
+} from './config.js';
 import { updateEpisodeState, getEpisodeState, lastPlayedEpisode, getFollow } from './db.js';
 
 const audio = document.getElementById('audio');
@@ -20,18 +23,35 @@ let advancedFrom = null;     // 送り済みのepisodeId。二重に送らない
 let userPaused = false;      // 直前の一時停止が利用者の操作によるものか
 let lastPosition = 0;        // 最後に確かに鳴っていた位置。音源を捨てられた後の載せ直しに使う
 let resumeWatchdog = 0;      // 再開が実際に始まったかを見張るタイマー
+let stallWatch = 0;          // 鳴らした後、位置が実際に進んでいるかを見張るタイマー
+let stallNudges = 0;         // 止まったまま進まないのを立て直そうとした回数
 
 // 実機（特にiOS）で何が起きたかを後から確認するための記録。
 // 開発者コンソールを開けない端末で切り分けるための唯一の手段なので残しておく。
 const eventLog = [];
+
+/**
+ * 手元にある音声が現在位置の何秒先まであるか。
+ * 「鳴っているのに進まない」ときに、音源を捨てられたのか（0秒）、
+ * データはあるのに出ていないのか（数十秒）を後から見分けるための手がかり。
+ */
+function bufferedAhead() {
+  try {
+    const ranges = audio.buffered;
+    if (!ranges || ranges.length === 0) return '-';
+    return `${Math.max(0, ranges.end(ranges.length - 1) - audio.currentTime).toFixed(0)}`;
+  } catch { return '?' }
+}
 
 function log(name, extra = '') {
   const at = new Date().toLocaleTimeString('ja-JP');
   const pos = Number.isFinite(audio.duration)
     ? ` ${audio.currentTime.toFixed(1)}/${audio.duration.toFixed(1)}s`
     : ` ${audio.currentTime.toFixed(1)}s`;
-  eventLog.push(`${at} ${name}${pos}${extra ? ` ${extra}` : ''}`);
-  if (eventLog.length > 60) eventLog.shift();
+  // r=readyState（音声を持っているか） n=networkState（取りに行っているか） b=先読みの秒数
+  const state = ` r${audio.readyState}n${audio.networkState}b${bufferedAhead()}`;
+  eventLog.push(`${at} ${name}${pos}${state}${extra ? ` ${extra}` : ''}`);
+  if (eventLog.length > 80) eventLog.shift();
 }
 
 export function diagnostics() {
@@ -181,6 +201,7 @@ function playFromRemote() {
   claimPlaybackSession();
   const promise = audio.play();
   if (promise) promise.catch((err) => { log('remote-play-rejected', err?.name || ''); emit(); });
+  watchForProgress();
   emit();
 }
 
@@ -282,6 +303,7 @@ function startPlayback(targetId, allowRearm = true) {
   };
 
   const promise = audio.play();
+  watchForProgress();
   if (promise) {
     promise.then(
       () => { settled = true; clearTimeout(resumeWatchdog); resumeWatchdog = 0; },
@@ -295,6 +317,33 @@ function startPlayback(targetId, allowRearm = true) {
   if (allowRearm) resumeWatchdog = setTimeout(rescue, RESUME_RETRY_MS);
   emit();
   return promise;
+}
+
+/**
+ * 鳴らす操作のあと、再生位置が実際に進んでいるかを見張る。
+ *
+ * iOS は画面を消したまま一時停止すると、読み込み済みの音声を捨てることがある。その状態で
+ * play() を呼ぶと「再生中」の扱いにはなるのに、データが届かないまま（stalled）位置が
+ * 止まり、音も出ない。拒否も error も返らないので、待っていても何も起きない。
+ *
+ * ほんの少し位置を動かすと取得をやり直すことがあるので、それを試す。
+ * 載せ直し（src の代入）はしない。背面でやると再生セッションを手放してしまうため。
+ */
+function watchForProgress() {
+  clearTimeout(stallWatch);
+  const startedAt = audio.currentTime;
+  stallWatch = setTimeout(() => {
+    stallWatch = 0;
+    if (audio.paused || userPaused || !current) return;   // もう鳴らす気が無い
+    if (audio.currentTime > startedAt + 0.05) { stallNudges = 0; return; }  // 進んでいる
+    if (stallNudges >= 2) { log('stall-give-up'); return; }
+    stallNudges += 1;
+    log('stall-nudge', `#${stallNudges}`);
+    try { audio.currentTime = startedAt + 0.01; } catch { /* シークできない状態 */ }
+    const promise = audio.play();
+    if (promise) promise.catch((err) => log('nudge-rejected', err?.name || ''));
+    watchForProgress();
+  }, STALL_CHECK_MS);
 }
 
 /**
@@ -342,6 +391,9 @@ export function play(episode, showTitle, startAt = 0, nextQueue = null) {
   if (nextQueue) queue = nextQueue;
   clearTimeout(resumeWatchdog);
   resumeWatchdog = 0;
+  clearTimeout(stallWatch);
+  stallWatch = 0;
+  stallNudges = 0;
   // 音源をまだ載せていないとき（起動直後の復元）は、同じ回でも載せ直しが要る
   const isSame = armed && current && current.episodeId === episode.episodeId;
   current = { ...episode, showTitle };
@@ -466,6 +518,10 @@ audio.addEventListener('loadedmetadata', () => {
 audio.addEventListener('play', () => { log('play'); userPaused = false; updatePlaybackState(); emit(); });
 audio.addEventListener('stalled', () => log('stalled'));
 audio.addEventListener('waiting', () => log('waiting'));
+audio.addEventListener('playing', () => log('playing'));
+audio.addEventListener('suspend', () => log('suspend'));
+audio.addEventListener('abort', () => log('abort'));
+audio.addEventListener('emptied', () => log('emptied'));
 audio.addEventListener('pause', () => {
   log('pause', userPaused ? '(操作)' : '(自動)');
   remember();
@@ -477,6 +533,7 @@ audio.addEventListener('pause', () => {
   if (!userPaused && isAtEnd()) finishAndAdvance('pause');
 });
 audio.addEventListener('timeupdate', () => {
+  if (!audio.paused) stallNudges = 0;
   remember();
   persist();
   emit();

@@ -912,6 +912,50 @@ await page.waitForFunction(() => true);
 check('記録に音声セッションの状態が出る',
   diagText.includes('音声セッション: playback'),
   diagText.split('\n').find((line) => line.startsWith('音声セッション')) || diagText);
+// 「鳴っているのに進まない」の切り分けに要るので、各行に <audio> の状態を添える
+check('記録の各行に readyState / networkState / 先読み秒数が付く',
+  /\br\dn\db(\d+|-|\?)/.test(diagText),
+  diagText.split('\n').find((line) => /^\d\d:\d\d:\d\d /.test(line)) || diagText);
+
+// --- 鳴らしたのに位置が進まないとき（iOS が読み込み済みの音声を捨てた後の play() は
+//     「再生中」の扱いになるのにデータが届かず、位置が止まったまま音も出ない）。
+//     ほんの少し位置を動かして取得をやり直させる。健全なときは何もしない。
+await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
+await page.waitForSelector('[data-episode]');
+await page.click('[data-episode] >> nth=0');
+await page.waitForFunction(() => document.getElementById('audio').currentTime > 2, null, { timeout: 8000 });
+await page.evaluate(() => {
+  // currentTime への書き込みを記録する。__freeze に数値を入れると位置が進まない状態を作れる
+  const a = document.getElementById('audio');
+  const real = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+  window.__seekWrites = [];
+  window.__freeze = null;
+  Object.defineProperty(a, 'currentTime', {
+    configurable: true,
+    get: () => (window.__freeze === null ? real.get.call(a) : window.__freeze),
+    set: (v) => { window.__seekWrites.push(v); real.set.call(a, v); },
+  });
+  window.__restoreTime = () => { delete a.currentTime; };
+});
+await page.evaluate(() => window.__actionHandlers.pause());
+await page.evaluate(() => window.__actionHandlers.play());
+await page.waitForTimeout(3200);
+check('鳴って進んでいる間は立て直しを試さない',
+  await page.evaluate(() => window.__seekWrites.length === 0),
+  await page.evaluate(() => `書き込み=${JSON.stringify(window.__seekWrites)}`));
+
+await page.evaluate(() => window.__actionHandlers.pause());
+await page.evaluate(() => { window.__freeze = document.getElementById('audio').currentTime; });
+await page.evaluate(() => window.__actionHandlers.play());
+await page.waitForTimeout(3200);
+check('位置が進まないときは少し動かして取得をやり直す',
+  await page.evaluate(() => window.__seekWrites.length >= 1),
+  await page.evaluate(() => `書き込み=${JSON.stringify(window.__seekWrites)}`));
+await page.evaluate(() => {
+  window.__freeze = null;
+  window.__restoreTime();
+  document.getElementById('audio').pause();
+});
 
 // --- アプリ内の再生ボタンからの再開。iOS は背面のPWAが読み込み済みの音声を捨てることがあり、
 //     そのときの play() は拒否も error も返さないまま握り潰される。
