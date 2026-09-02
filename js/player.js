@@ -35,7 +35,11 @@ function log(name, extra = '') {
 }
 
 export function diagnostics() {
-  return eventLog.length ? eventLog.join('\n') : '（まだ記録がありません）';
+  const session = navigator.audioSession
+    ? `音声セッション: ${navigator.audioSession.type} / ${navigator.audioSession.state}`
+    : '音声セッション: 未対応';
+  const body = eventLog.length ? eventLog.join('\n') : '（まだ記録がありません）';
+  return `${session}\n\n${body}`;
 }
 
 export function subscribe(fn) {
@@ -174,9 +178,30 @@ function jump(offset) {
 function playFromRemote() {
   if (!current) return;
   userPaused = false;
+  claimPlaybackSession();
   const promise = audio.play();
   if (promise) promise.catch((err) => { log('remote-play-rejected', err?.name || ''); emit(); });
   emit();
+}
+
+/**
+ * 音声の扱いを「再生用」だと宣言する（Audio Session API）。
+ *
+ * 既定は auto で、iOS ではこれが ambient（環境音）扱いになることがある。ambient は
+ * 画面を消すと消音される種別なので、ロック中に鳴らし直すと
+ * 「再生マークになり、シークバーも進むのに、音だけ出ない」という状態になる。
+ * playback にしておくと画面を消しても消音されず、他アプリの再生も止めて自分が鳴る。
+ *
+ * 鳴らす前に宣言しておく必要があるため、起動時と、鳴らす操作のたびに呼ぶ
+ * （すでに playback なら何もしない）。
+ */
+function claimPlaybackSession() {
+  const session = navigator.audioSession;
+  if (!session || session.type === 'playback') return;
+  try {
+    session.type = 'playback';
+    log('audio-session', 'playback');
+  } catch { /* 未対応の環境では黙って無視する */ }
 }
 
 /** ロック画面・コントロールセンター・Bluetoothイヤホンからの操作を受け取る */
@@ -286,6 +311,7 @@ function startPlayback(targetId, allowRearm = true) {
 export function resume() {
   if (!current) return undefined;
   userPaused = false;
+  claimPlaybackSession();
 
   if (hasLostAudio()) {
     log('re-arm', audio.error ? `code=${audio.error.code}` : '');
@@ -312,6 +338,7 @@ export function resume() {
  *                  自動送りのときも続きから再生できる（endedハンドラ内でDBを待てないため）。
  */
 export function play(episode, showTitle, startAt = 0, nextQueue = null) {
+  claimPlaybackSession();
   if (nextQueue) queue = nextQueue;
   clearTimeout(resumeWatchdog);
   resumeWatchdog = 0;
@@ -504,4 +531,13 @@ document.addEventListener('visibilitychange', () => {
   if (audio.paused && !userPaused && isAtEnd()) finishAndAdvance('visible');
 });
 
+claimPlaybackSession();
 setupMediaSession();
+
+// 音声セッションの状態（inactive / active / interrupted）も記録に残す。
+// 「鳴っているのに音が出ない」ときの切り分けは、これが無いと実機で追えない。
+if (navigator.audioSession) {
+  navigator.audioSession.addEventListener?.('statechange', () => {
+    log('audio-session', `${navigator.audioSession.type}/${navigator.audioSession.state}`);
+  });
+}
