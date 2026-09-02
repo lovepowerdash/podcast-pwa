@@ -17,8 +17,7 @@ let readRevision = 0;    // 既読フラグを書き込むたびに増える。�
 let autoAdvancing = false;   // いま自動送りの最中か
 let autoAdvanceBlocked = null; // 自動送りがブラウザに拒否された理由（UIで知らせる）
 let advancedFrom = null;     // 送り済みのepisodeId。二重に送らないための目印
-let userPaused = false;      // 直前の一時停止がアプリ内の操作によるものか
-                             // （ロック画面からの停止はブラウザ任せなので立たない）
+let userPaused = false;      // 直前の一時停止が利用者の操作によるものか
 let lastPosition = 0;        // 最後に確かに鳴っていた位置。音源を捨てられた後の載せ直しに使う
 let resumeWatchdog = 0;      // 再開が実際に始まったかを見張るタイマー
 
@@ -160,28 +159,32 @@ function jump(offset) {
 }
 
 /**
- * ロック画面・コントロールセンター・Bluetoothイヤホンからの操作を受け取る。
+ * ロック画面・コントロールセンター・Bluetoothイヤホンからの再生。
  *
- * 再生と一時停止のハンドラは、あえて登録しない。
+ * ここでは <audio> をそのまま鳴らすだけにして、音源の載せ直しは絶対にしない。
  *
- * ハンドラを登録すると、その操作は「ページのJavaScriptを動かして処理するもの」に変わる。
- * ところが iOS は、画面を消したまま一時停止して数十秒ほど経つと背面のPWAを眠らせるため、
- * イヤホンの再生ボタンを押してもハンドラが呼ばれず、押しても何も起きないまま終わる
- * （iOS 側の既知の問題。前面に戻すまで直らない）。
- * 登録しなければブラウザが <audio> を直接鳴らすので、ページが眠っていても再生が始まる。
+ * src を代入すると WebKit は再生セッションを作り直す。前面ならそれでよいが、画面を
+ * 消している間にやると「今再生中」の役目をその場で手放してしまい、イヤホンの再生ボタンが
+ * 直前に鳴らしていた別のアプリ（ミュージックなど）へ渡ってしまう。こちらは鳴らないまま。
  *
- * 手放しても取りこぼさない。再生位置の保存も画面の更新も、ハンドラではなく
- * <audio> の play / pause イベントの側で行っているため。
- * 押しても何も起きない状態のうち、ブラウザ任せで困るものも無い。
- *   - 音源を載せていない（起動直後の復元）— ページを読み直した後はロック画面の
- *     操作先そのものが無いので、この経路には来ない（アプリ内の再生ボタンは resume を通る）
- *   - 聴き終えた回で止まっている — 既定の play() は終端なら頭に戻してから鳴らす
+ * 載せ直さなくても困らない。src を持ったまま音声だけ捨てられた状態なら、
+ * play() を呼べばブラウザが自分で読み直す（セッションは保たれる）。
+ * 込み入った復旧はアプリ内の再生ボタン（resume）に任せる。前面でしか押せないため安全。
  */
+function playFromRemote() {
+  if (!current) return;
+  userPaused = false;
+  const promise = audio.play();
+  if (promise) promise.catch((err) => { log('remote-play-rejected', err?.name || ''); emit(); });
+  emit();
+}
+
+/** ロック画面・コントロールセンター・Bluetoothイヤホンからの操作を受け取る */
 function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
   const handlers = {
-    play: null,
-    pause: null,
+    play: () => playFromRemote(),
+    pause: () => { userPaused = true; audio.pause(); },
     seekbackward: (details) => seekBy(-(details?.seekOffset || SEEK_SECONDS)),
     seekforward: (details) => seekBy(details?.seekOffset || SEEK_SECONDS),
     seekto: (details) => { if (details?.seekTime != null) seekTo(details.seekTime); },
@@ -271,7 +274,8 @@ function startPlayback(targetId, allowRearm = true) {
 
 /**
  * 一時停止からの再開。アプリ内の再生ボタン（ミニプレイヤー／フルプレイヤー）がここを通る。
- * ロック画面やイヤホンからの再生はブラウザ任せなので、ここは通らない（setupMediaSession）。
+ * 音源を載せ直すことがあるため、ロック画面やイヤホンからの再生はここを通さない
+ * （背面での載せ直しは再生セッションを手放してしまう。playFromRemote を参照）。
  *
  * 押しても何も起きない状態が4つあるので、ここで拾って必ず音を出す。
  *   1. 起動直後 — 続きを読み戻しただけで、まだ音源を載せていない
