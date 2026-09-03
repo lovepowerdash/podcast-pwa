@@ -2,10 +2,13 @@
 // 再生制御。HTML <audio> + Media Session API。
 // バックグラウンド／ロック画面からの操作はここで全部受ける。
 // ---------------------------------------------------------------------------
-import { SEEK_SECONDS, POSITION_SAVE_INTERVAL_MS, READ_RATIO, PLAYBACK_RATES } from './config.js';
+import {
+  SEEK_SECONDS, POSITION_SAVE_INTERVAL_MS, READ_RATIO, PLAYBACK_RATES, SILENT_HOLD_MS,
+} from './config.js';
 import { updateEpisodeState, getEpisodeState, lastPlayedEpisode, getFollow } from './db.js';
 
 const audio = document.getElementById('audio');
+const silence = document.getElementById('silence');
 const listeners = new Set();
 
 let current = null;      // 再生中のエピソード（+ showTitle）
@@ -18,6 +21,7 @@ let autoAdvancing = false;   // いま自動送りの最中か
 let autoAdvanceBlocked = null; // 自動送りがブラウザに拒否された理由（UIで知らせる）
 let advancedFrom = null;     // 送り済みのepisodeId。二重に送らないための目印
 let userPaused = false;      // 直前の一時停止が利用者の操作によるものか
+let holdTimer = 0;           // 無音でセッションを保つのを打ち切るタイマー
 
 // 実機（特にiOS）で何が起きたかを後から確認するための記録。
 // 開発者コンソールを開けない端末で切り分けるための唯一の手段なので残しておく。
@@ -154,7 +158,7 @@ function setupMediaSession() {
     // 手放してしまう。イヤホンの再生ボタンが直前に鳴らしていた別のアプリ（ミュージック
     // など）へ渡り、こちらは鳴らないまま、向こうの音楽が鳴り出す。
     // 込み入った復旧は、前面でしか押せないアプリ内の再生ボタン（resume）に任せる。
-    play: () => { userPaused = false; audio.play().catch(() => {}); },
+    play: () => { releaseAudioSession(); userPaused = false; audio.play().catch(() => {}); },
     pause: () => { userPaused = true; audio.pause(); },
     seekbackward: (details) => seekBy(-(details?.seekOffset || SEEK_SECONDS)),
     seekforward: (details) => seekBy(details?.seekOffset || SEEK_SECONDS),
@@ -164,6 +168,40 @@ function setupMediaSession() {
   };
   for (const [action, handler] of Object.entries(handlers)) {
     try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* 未対応アクション */ }
+  }
+}
+
+// ---- オーディオセッションの保持 ---------------------------------------------
+
+/**
+ * 一時停止中もオーディオセッションを手放さないよう、無音を鳴らし続ける。
+ *
+ * iOS は <audio> が止まるとオーディオセッションを落とす。そして背面からは起こし直せない。
+ * 実機の記録では、データも通信もある（r4 / b82秒先まで手元にある）状態で play も playing も
+ * 発火するのに、再生位置が1ミリも進まず音も出なかった。Web にセッションを有効化する API は
+ * 無いので、落とさせないほうで対処する。落とさなければ起こし直す必要が無い。
+ *
+ * 鳴らしている間は電池と通信を使い、他のアプリも音を出しにくくなる。そのため
+ * 画面を消している間に止めたときだけ、SILENT_HOLD_MS のあいだだけ鳴らす。
+ */
+function holdAudioSession() {
+  if (!silence || !current || !armed) return;
+  if (document.visibilityState !== 'hidden') return;  // 前面なら要らない
+  if (!audio.paused || !userPaused) return;           // 鳴っている／聴き終えて止まった
+  if (!silence.paused) return;                        // すでに保っている
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(releaseAudioSession, SILENT_HOLD_MS);
+  const promise = silence.play();
+  if (promise) promise.then(() => log('hold-start'), (err) => log('hold-rejected', err?.name || ''));
+}
+
+/** 無音を止めてセッションを手放す。鳴らす前には必ず呼ぶ（無音が本編を邪魔しないように） */
+function releaseAudioSession() {
+  clearTimeout(holdTimer);
+  holdTimer = 0;
+  if (silence && !silence.paused) {
+    silence.pause();
+    log('hold-end');
   }
 }
 
@@ -192,6 +230,7 @@ function arm(startAt = 0) {
  */
 export function resume() {
   if (!current) return undefined;
+  releaseAudioSession();
   userPaused = false;
 
   const lost = !armed || !audio.src || audio.error
@@ -237,6 +276,7 @@ export function resume() {
  *                  自動送りのときも続きから再生できる（endedハンドラ内でDBを待てないため）。
  */
 export function play(episode, showTitle, startAt = 0, nextQueue = null) {
+  releaseAudioSession();
   if (nextQueue) queue = nextQueue;
   // 音源をまだ載せていないとき（起動直後の復元）は、同じ回でも載せ直しが要る
   const isSame = armed && current && current.episodeId === episode.episodeId;
@@ -367,6 +407,7 @@ audio.addEventListener('pause', () => {
   // ended が発火しないまま終端で止まった場合の受け皿。
   // 利用者が押した一時停止と、再生し切って止まったものを区別する。
   if (!userPaused && isAtEnd()) finishAndAdvance('pause');
+  else holdAudioSession();
 });
 audio.addEventListener('timeupdate', () => {
   persist();
@@ -415,9 +456,11 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     log('hidden');
     persist({ force: true });
+    holdAudioSession();   // 止めたまま画面を消した場合もセッションを保つ
     return;
   }
   log('visible');
+  releaseAudioSession(); // 前面に戻ったら要らない
   // 画面を消している間はJSの実行が止まることがある。戻ってきた時点で終端に達していたら送る。
   if (audio.paused && !userPaused && isAtEnd()) finishAndAdvance('visible');
 });
