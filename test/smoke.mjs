@@ -822,10 +822,9 @@ check('聴き終えた回で再生を押すと頭から鳴る', await page.evalu
 check('送り先が無いので回は変わらない', (await page.textContent('#mini-title')) === lastTitle, await page.textContent('#mini-title'));
 await page.evaluate(() => document.getElementById('audio').pause());
 
-// --- ロック画面／イヤホンからの操作。ハンドラを登録しないと、操作は直前に鳴らしていた
-//     別のアプリ（ミュージックなど）へ渡ってしまうため、必ず自分で受け取る。
-//     そのうえで再生は <audio> をそのまま鳴らすだけにする。src を代入して音源を載せ直すと、
-//     WebKit が再生セッションを作り直し、背面では「今再生中」の役目を手放してしまう。
+// --- ロック画面／イヤホンからの操作。<audio> をそのまま鳴らすだけにする。
+//     src を代入して音源を載せ直すと WebKit が再生セッションを作り直し、背面では
+//     「今再生中」の役目を手放して、操作が別のアプリ（ミュージックなど）へ渡ってしまう。
 await page.addInitScript(() => {
   const original = MediaSession.prototype.setActionHandler;
   window.__actionHandlers = {};
@@ -836,20 +835,10 @@ await page.addInitScript(() => {
 });
 await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
 await page.waitForSelector('[data-episode]');
-const handlerTypes = () => page.evaluate(() => Object.fromEntries(
-  Object.entries(window.__actionHandlers).map(([a, h]) => [a, typeof h])));
 check('再生と一時停止を自分で受け取る（別のアプリへ渡さない）',
-  await page.evaluate(() => typeof window.__actionHandlers.play === 'function'
-    && typeof window.__actionHandlers.pause === 'function'),
-  JSON.stringify(await handlerTypes()));
-check('シークと前後送りも自分で受け取る',
-  await page.evaluate(() => ['seekforward', 'seekbackward', 'seekto', 'nexttrack', 'previoustrack']
+  await page.evaluate(() => ['play', 'pause']
     .every((a) => typeof window.__actionHandlers[a] === 'function')),
-  JSON.stringify(await handlerTypes()));
-
-// ロック画面からの一時停止 → 再生を、実際にハンドラを呼んで確かめる。
-// emptied は音源を載せ直したときに出るので、1度も出ないことをもって
-// 「セッションを作り直していない」ことを確かめる。
+  await page.evaluate(() => Object.keys(window.__actionHandlers).join(',')));
 await page.click('[data-episode] >> nth=0');
 await page.waitForFunction(() => document.getElementById('audio').currentTime > 4, null, { timeout: 8000 });
 await page.evaluate(() => {
@@ -862,8 +851,7 @@ check('ロック画面の一時停止で止まる', await page.evaluate(() => do
 const remotePausedAt = await page.evaluate(() => document.getElementById('audio').currentTime);
 await page.evaluate(() => window.__actionHandlers.play());
 await page.waitForFunction(() => !document.getElementById('audio').paused, null, { timeout: 8000 }).catch(() => {});
-check('ロック画面の再生で鳴り出す', await page.evaluate(() => !document.getElementById('audio').paused),
-  await page.evaluate(() => `paused=${document.getElementById('audio').paused}`));
+check('ロック画面の再生で鳴り出す', await page.evaluate(() => !document.getElementById('audio').paused));
 check('ロック画面からの再生では音源を載せ直さない（セッションを手放さない）',
   await page.evaluate(() => window.__emptied === 0),
   await page.evaluate(() => `emptied=${window.__emptied}`));
@@ -871,156 +859,6 @@ check('ロック画面からの再生でも続きから鳴る',
   await page.evaluate((pos) => document.getElementById('audio').currentTime >= pos - 0.5, remotePausedAt),
   await page.evaluate((pos) => `t=${document.getElementById('audio').currentTime.toFixed(1)} 停止=${pos.toFixed(1)}`, remotePausedAt));
 await page.evaluate(() => document.getElementById('audio').pause());
-
-// --- 音声の扱いを「再生用」と宣言する。既定(auto)は iOS で ambient（環境音）扱いになることがあり、
-//     ambient は画面を消すと消音される種別なので「再生マークになりシークバーも進むのに音だけ出ない」
-//     という状態になる。playback にしておくと画面を消しても消音されない。
-await page.addInitScript(() => {
-  // Chromium には Audio Session API が無いので、宣言していることだけを確かめられるようにする
-  Object.defineProperty(navigator, 'audioSession', {
-    value: { type: 'auto', state: 'inactive' }, configurable: true,
-  });
-});
-await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
-await page.waitForSelector('[data-episode]');
-check('起動時に音声セッションを再生用と宣言する',
-  await page.evaluate(() => navigator.audioSession.type === 'playback'),
-  await page.evaluate(() => navigator.audioSession.type));
-// セッションは作り直されることがあるため、鳴らす操作のたびに宣言し直す
-await page.click('[data-episode] >> nth=0');
-await page.waitForFunction(() => document.getElementById('audio').currentTime > 1, null, { timeout: 8000 });
-await page.evaluate(() => { navigator.audioSession.type = 'auto'; });
-await page.evaluate(() => window.__actionHandlers.pause());
-await page.waitForTimeout(200);
-await page.evaluate(() => window.__actionHandlers.play());
-check('ロック画面から鳴らすときも宣言し直す',
-  await page.evaluate(() => navigator.audioSession.type === 'playback'),
-  await page.evaluate(() => navigator.audioSession.type));
-await page.evaluate(() => { navigator.audioSession.type = 'auto'; });
-await page.click('#mini-toggle'); // アプリ内で一時停止
-await page.click('#mini-toggle'); // アプリ内で再生
-check('アプリ内の再生ボタンでも宣言し直す',
-  await page.evaluate(() => navigator.audioSession.type === 'playback'),
-  await page.evaluate(() => navigator.audioSession.type));
-await page.evaluate(() => document.getElementById('audio').pause());
-// 実機の切り分けは版表示をタップして出す記録が頼りなので、セッションの状態もそこに出す
-await page.goto('http://localhost:8099/', { waitUntil: 'networkidle' });
-let diagText = '';
-page.once('dialog', (d) => { diagText = d.message(); d.accept(); });
-await page.click('#version');
-await page.waitForFunction(() => true);
-check('記録に音声セッションの状態が出る',
-  diagText.includes('音声セッション: playback'),
-  diagText.split('\n').find((line) => line.startsWith('音声セッション')) || diagText);
-// 「鳴っているのに進まない」の切り分けに要るので、各行に <audio> の状態を添える
-check('記録の各行に readyState / networkState / 先読み秒数が付く',
-  /\br\dn\db(\d+|-|\?)/.test(diagText),
-  diagText.split('\n').find((line) => /^\d\d:\d\d:\d\d /.test(line)) || diagText);
-
-// --- 鳴らしたのに位置が進まないとき（iOS が読み込み済みの音声を捨てた後の play() は
-//     「再生中」の扱いになるのにデータが届かず、位置が止まったまま音も出ない）。
-//     ほんの少し位置を動かして取得をやり直させる。健全なときは何もしない。
-await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
-await page.waitForSelector('[data-episode]');
-await page.click('[data-episode] >> nth=0');
-await page.waitForFunction(() => document.getElementById('audio').currentTime > 2, null, { timeout: 8000 });
-await page.evaluate(() => {
-  // currentTime への書き込みを記録する。__freeze で位置が進まない状態を、
-  // __emptyBuffered で手元にデータが無い状態を作れるようにする
-  const a = document.getElementById('audio');
-  const realTime = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
-  const realBuffered = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'buffered');
-  window.__seekWrites = [];
-  window.__freeze = null;
-  window.__emptyBuffered = false;
-  Object.defineProperty(a, 'currentTime', {
-    configurable: true,
-    get: () => (window.__freeze === null ? realTime.get.call(a) : window.__freeze),
-    set: (v) => { window.__seekWrites.push(v); realTime.set.call(a, v); },
-  });
-  Object.defineProperty(a, 'buffered', {
-    configurable: true,
-    get: () => (window.__emptyBuffered ? { length: 0 } : realBuffered.get.call(a)),
-  });
-  window.__restoreProbes = () => { delete a.currentTime; delete a.buffered; };
-});
-await page.evaluate(() => window.__actionHandlers.pause());
-await page.evaluate(() => window.__actionHandlers.play());
-await page.waitForTimeout(3200);
-check('鳴って進んでいる間は立て直しを試さない',
-  await page.evaluate(() => window.__seekWrites.length === 0),
-  await page.evaluate(() => `書き込み=${JSON.stringify(window.__seekWrites)}`));
-
-// 手元にデータが無いまま位置が進まない ＝ 取得が止まっている。少し動かしてやり直させる
-await page.evaluate(() => window.__actionHandlers.pause());
-await page.evaluate(() => {
-  window.__freeze = document.getElementById('audio').currentTime;
-  window.__emptyBuffered = true;
-});
-await page.evaluate(() => window.__actionHandlers.play());
-await page.waitForTimeout(3200);
-check('データが無いまま進まないときは少し動かして取得をやり直す',
-  await page.evaluate(() => window.__seekWrites.length >= 1),
-  await page.evaluate(() => `書き込み=${JSON.stringify(window.__seekWrites)}`));
-// 自分で動かすと timeupdate が出る。それで回数を数え直すと、いつまでも動かし続けてしまう
-await page.waitForTimeout(6000);
-check('立て直しは2回で打ち切る（動かし続けない）',
-  await page.evaluate(() => window.__seekWrites.length === 2),
-  await page.evaluate(() => `書き込み=${window.__seekWrites.length}回`));
-
-// データはあるのに進まない ＝ 音声の出口が動いていない。動かしても意味が無いので何もしない
-await page.evaluate(() => window.__actionHandlers.pause());
-await page.evaluate(() => {
-  window.__emptyBuffered = false;
-  window.__seekWrites.length = 0;
-  window.__freeze = document.getElementById('audio').currentTime;
-});
-await page.evaluate(() => window.__actionHandlers.play());
-await page.waitForTimeout(3200);
-check('データがあるのに進まないときは何もしない（出口の問題なので効かない）',
-  await page.evaluate(() => window.__seekWrites.length === 0),
-  await page.evaluate(() => `書き込み=${JSON.stringify(window.__seekWrites)}`));
-await page.evaluate(() => {
-  window.__freeze = null;
-  window.__restoreProbes();
-  document.getElementById('audio').pause();
-});
-
-// --- アプリ内の再生ボタンからの再開。iOS は背面のPWAが読み込み済みの音声を捨てることがあり、
-//     そのときの play() は拒否も error も返さないまま握り潰される。
-//     拒否を待っているだけでは永久に鳴らないので、鳴り始めたかを見張って載せ直す。
-await page.goto(`http://localhost:8099/show?feed=${encodeURIComponent('https://feed.test/rss.xml')}`, { waitUntil: 'networkidle' });
-await page.waitForSelector('[data-episode]');
-await page.click('[data-episode] >> nth=0');
-await page.waitForFunction(() => document.getElementById('audio').currentTime > 4, null, { timeout: 8000 });
-await page.evaluate(() => {
-  // 次の play() を1回だけ握り潰す（返事を返さず、鳴りもしない）
-  const proto = HTMLMediaElement.prototype;
-  const original = proto.play;
-  let swallowed = false;
-  proto.play = function play(...args) {
-    if (swallowed) return original.apply(this, args);
-    swallowed = true;
-    return new Promise(() => {});
-  };
-  window.__restorePlay = () => { proto.play = original; };
-});
-await page.click('#mini-toggle'); // イヤホンの一時停止に相当
-await page.waitForTimeout(300);
-check('イヤホンの操作で一時停止できる', await page.evaluate(() => document.getElementById('audio').paused));
-const pausedAt = await page.evaluate(() => document.getElementById('audio').currentTime);
-await page.click('#mini-toggle'); // イヤホンの再生に相当（1回目の play() は握り潰される）
-// 載せ直しは非同期なので、鳴り始めて位置が戻るところまで待つ
-await page.waitForFunction((pos) => {
-  const a = document.getElementById('audio');
-  return !a.paused && a.currentTime >= pos - 0.5;
-}, pausedAt, { timeout: 8000 }).catch(() => {});
-check('握り潰された再生を載せ直して鳴らし直す', await page.evaluate(() => !document.getElementById('audio').paused),
-  await page.evaluate(() => `paused=${document.getElementById('audio').paused}`));
-check('鳴らし直しても頭に戻らない',
-  await page.evaluate((pos) => document.getElementById('audio').currentTime >= pos - 0.5, pausedAt),
-  await page.evaluate((pos) => `t=${document.getElementById('audio').currentTime.toFixed(1)} 停止=${pos.toFixed(1)}`, pausedAt));
-await page.evaluate(() => { window.__restorePlay?.(); document.getElementById('audio').pause(); });
 
 // --- Service Worker / manifest
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));

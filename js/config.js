@@ -4,7 +4,7 @@
 
 // ホーム画面の下部に表示する版。端末に新しいコードが届いているかを目視で確かめるためのもの。
 // 変更を配信するたびに更新する。
-export const APP_VERSION = '2026-08-27 #50';
+export const APP_VERSION = '2026-08-27 #51';
 
 // RSSフィードの取得経路。全経路を同時に投げ、最初に成功したものを採用する。
 //
@@ -50,11 +50,3 @@ export const SEEK_SECONDS = 15;              // ロック画面/フルプレイ�
 export const POSITION_SAVE_INTERVAL_MS = 5000; // 再生位置をIndexedDBへ書き戻す間隔
 export const READ_RATIO = 0.95;              // ここまで再生したら既読とみなす
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 1.75, 2];
-// 再生ボタンを押してから、実際に鳴り始めたか確かめるまでの待ち時間。
-// iOS は画面を消している間に読み込み済みの音声を捨てることがあり、そのときの play() は
-// error も拒否も返さないまま何も起きない。これを過ぎても止まったままなら音源を載せ直す。
-export const RESUME_RETRY_MS = 1200;
-// 鳴らす操作のあと、実際に再生位置が進んでいるかを確かめるまでの待ち時間。
-// iOS は画面を消したまま止めると読み込み済みの音声を捨てることがあり、その状態の play() は
-// 「再生中」の扱いになるのにデータが届かず（stalled）、位置が止まったまま音も出ない。
-export const STALL_CHECK_MS = 2500;
