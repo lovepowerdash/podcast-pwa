@@ -860,6 +860,48 @@ check('ロック画面からの再生でも続きから鳴る',
   await page.evaluate((pos) => `t=${document.getElementById('audio').currentTime.toFixed(1)} 停止=${pos.toFixed(1)}`, remotePausedAt));
 await page.evaluate(() => document.getElementById('audio').pause());
 
+// --- 画面を消したまま止めている間は、無音を鳴らしてオーディオセッションを手放さない。
+//     iOS は <audio> が止まるとセッションを落とし、背面からは起こし直せないため
+//     （データも通信もあるのに再生位置が進まない）。落とさなければ起こし直す必要が無い。
+const setHidden = (hidden) => page.evaluate((h) => {
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true, get: () => (h ? 'hidden' : 'visible'),
+  });
+  document.dispatchEvent(new Event('visibilitychange'));
+}, hidden);
+const silencePlaying = () => page.evaluate(() => !document.getElementById('silence').paused);
+
+await page.click('[data-episode] >> nth=0');
+await page.waitForFunction(() => document.getElementById('audio').currentTime > 2, null, { timeout: 8000 });
+
+// 前面で止めただけなら要らない
+await page.evaluate(() => window.__actionHandlers.pause());
+await page.waitForTimeout(300);
+check('前面で止めたときは無音を鳴らさない', !(await silencePlaying()));
+
+// 画面を消したまま止めたときだけ鳴らす
+await page.evaluate(() => window.__actionHandlers.play());
+await page.waitForFunction(() => !document.getElementById('audio').paused, null, { timeout: 8000 });
+await setHidden(true);
+await page.evaluate(() => window.__actionHandlers.pause());
+await page.waitForTimeout(400);
+check('画面を消したまま止めるとセッションを保つ（無音を鳴らす）', await silencePlaying());
+
+// 鳴らすときは必ず先に無音を止める（本編を邪魔しないように）
+await page.evaluate(() => window.__actionHandlers.play());
+await page.waitForTimeout(400);
+check('再生すると無音を止める', !(await silencePlaying()));
+check('本編は鳴っている', await page.evaluate(() => !document.getElementById('audio').paused));
+
+// 前面に戻ったら保つ必要が無い
+await page.evaluate(() => window.__actionHandlers.pause());
+await page.waitForTimeout(300);
+check('画面を消したままなら保ち続ける', await silencePlaying());
+await setHidden(false);
+await page.waitForTimeout(300);
+check('前面に戻すと無音を止める', !(await silencePlaying()));
+await page.evaluate(() => document.getElementById('audio').pause());
+
 // --- Service Worker / manifest
 check('Service Worker 登録', await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));
 const manifest = await (await page.request.get('http://localhost:8099/manifest.webmanifest')).json();
