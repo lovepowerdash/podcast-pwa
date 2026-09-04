@@ -1,0 +1,16 @@
+{
+  "name": "podflow-native",
+  "private": true,
+  "version": "1.0.0",
+  "description": "podflow を iOS アプリとして包むための入れ物（Web 側の配信物は ../ をそのまま使う）",
+  "type": "module",
+  "scripts": {
+    "copy-web": "node scripts/copy-web.mjs",
+    "sync": "npm run copy-web && cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/ios": "^8.5.1"
+  }
+}

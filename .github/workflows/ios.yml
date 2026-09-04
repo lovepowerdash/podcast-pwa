@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# iOS アプリ（.ipa）をクラウドで組み立てる。手元に Mac は要らない。
+#
+# 署名はしない。無料の Apple ID で署名するのは SideStore 側の役目で、
+# ここでは署名なしの .ipa を作って成果物として置くだけにする。
+# ---------------------------------------------------------------------------
+name: iOS ビルド
+
+on:
+  push:
+    branches: ['**']
+    paths: ['index.html', 'css/**', 'js/**', 'icons/**', 'native/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 依存を入れる
+        working-directory: native
+        run: npm install --no-audit --no-fund
+
+      - name: Web アプリを写して同期する
+        working-directory: native
+        run: npm run sync
+
+      - name: 組み立てる（署名なし）
+        working-directory: native/ios/App
+        run: |
+          xcodebuild \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: .ipa に詰める
+        working-directory: native/ios/App
+        run: |
+          APP="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -1)"
+          test -n "$APP" || { echo '.app が見つからない'; exit 1; }
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          (cd out && zip -qry podflow.ipa Payload)
+          ls -lh out/podflow.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: podflow-ipa
+          path: native/ios/App/out/podflow.ipa
+          if-no-files-found: error

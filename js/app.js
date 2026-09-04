@@ -969,7 +969,10 @@ for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
   document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
 }
 
-if ('serviceWorker' in navigator) {
+// ネイティブ（Capacitor）では Service Worker を使わない。アプリの中身は .ipa に同梱
+// されていて更新は入れ直しで行うため、キャッシュ層を挟む意味が無い。
+// controllerchange による読み直しが再生を切る事故のもとにもなる。
+if ('serviceWorker' in navigator && !window.__PODFLOW_NATIVE__) {
   // すでに旧Service Workerに制御されている場合、新しいものが引き継いだ時点で
   // 読み込み済みの古いコードを捨てるために一度だけ再読み込みする
   if (navigator.serviceWorker.controller) {
