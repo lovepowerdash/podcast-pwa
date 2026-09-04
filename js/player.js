@@ -2,9 +2,7 @@
 // 再生制御。HTML <audio> + Media Session API。
 // バックグラウンド／ロック画面からの操作はここで全部受ける。
 // ---------------------------------------------------------------------------
-import {
-  SEEK_SECONDS, POSITION_SAVE_INTERVAL_MS, READ_RATIO, PLAYBACK_RATES, SILENT_HOLD_MS,
-} from './config.js';
+import { SEEK_SECONDS, POSITION_SAVE_INTERVAL_MS, READ_RATIO, PLAYBACK_RATES } from './config.js';
 import { updateEpisodeState, getEpisodeState, lastPlayedEpisode, getFollow } from './db.js';
 
 const audio = document.getElementById('audio');
@@ -20,8 +18,6 @@ let autoAdvancing = false;   // いま自動送りの最中か
 let autoAdvanceBlocked = null; // 自動送りがブラウザに拒否された理由（UIで知らせる）
 let advancedFrom = null;     // 送り済みのepisodeId。二重に送らないための目印
 let userPaused = false;      // 直前の一時停止が利用者の操作によるものか
-let holdingAt = null;        // 消音保持中の再生位置（null なら保持していない）
-let holdTimer = 0;           // 保持を打ち切るタイマー
 
 // 実機（特にiOS）で何が起きたかを後から確認するための記録。
 // 開発者コンソールを開けない端末で切り分けるための唯一の手段なので残しておく。
@@ -59,8 +55,8 @@ function currentPosition() {
 export function getState() {
   return {
     episode: current,
-    playing: holdingAt !== null ? false : (armed ? !audio.paused && !audio.ended : false),
-    position: holdingAt !== null ? holdingAt : currentPosition(),
+    playing: armed ? !audio.paused && !audio.ended : false,
+    position: currentPosition(),
     duration: Number.isFinite(audio.duration) ? audio.duration : (current?.duration || 0),
     rate: audio.playbackRate,
     readRevision,
@@ -79,7 +75,7 @@ async function persist({ force = false } = {}) {
   lastSaved = now;
 
   const duration = Number.isFinite(audio.duration) ? audio.duration : (current.duration || 0);
-  const position = holdingAt !== null ? holdingAt : (audio.currentTime || 0);
+  const position = audio.currentTime || 0;
   const finished = duration > 0 && position / duration >= READ_RATIO;
   await updateEpisodeState(current, {
     position: finished ? 0 : position,
@@ -152,20 +148,14 @@ function jump(offset) {
 function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
   const handlers = {
-    // 保持中なら消音を解くだけで鳴り出す。新しく再生を始めないのが肝心。
-    // そうでなければ <audio> をそのまま鳴らすだけにする。resume() を通してはいけない。
+    // ここは <audio> をそのまま鳴らすだけにする。resume() を通してはいけない。
     // resume() は状況次第で音源を載せ直す（src の代入）が、画面を消している間に
     // それをやると WebKit が再生セッションを作り直し、「今再生中」の役目をその場で
     // 手放してしまう。イヤホンの再生ボタンが直前に鳴らしていた別のアプリ（ミュージック
     // など）へ渡り、こちらは鳴らないまま、向こうの音楽が鳴り出す。
     // 込み入った復旧は、前面でしか押せないアプリ内の再生ボタン（resume）に任せる。
-    play: () => {
-      if (endHold({ resume: true })) return;
-      userPaused = false;
-      audio.play().catch(() => {});
-    },
-    // 止めるとセッションが落ちるので、画面を消している間は止めずに消音で保つ
-    pause: () => { userPaused = true; if (!startHold()) audio.pause(); },
+    play: () => { userPaused = false; audio.play().catch(() => {}); },
+    pause: () => { userPaused = true; audio.pause(); },
     seekbackward: (details) => seekBy(-(details?.seekOffset || SEEK_SECONDS)),
     seekforward: (details) => seekBy(details?.seekOffset || SEEK_SECONDS),
     seekto: (details) => { if (details?.seekTime != null) seekTo(details.seekTime); },
@@ -175,61 +165,6 @@ function setupMediaSession() {
   for (const [action, handler] of Object.entries(handlers)) {
     try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* 未対応アクション */ }
   }
-}
-
-// ---- 消音保持 ---------------------------------------------------------------
-
-/**
- * 一時停止の代わりに、消音したまま鳴らし続けてオーディオセッションを保つ。
- *
- * iOS は <audio> が止まるとオーディオセッションを落とし、背面からは起こし直せない。
- * 実機の記録では、止めた後に鳴らそうとしても（本編でも別の無音要素でも）再生が始まらず、
- * 位置が1ミリも進まなかった。背面で「新しく再生を始める」ことができないのが本体。
- *
- * ならば止めなければよい。消音して鳴らし続ければセッションは落ちず、再開は
- * 「消音を解いて位置を戻すだけ」で済む。新しく再生を始める必要が無い。
- *
- * 鳴らし続ける間は通信と電池を使うので、画面を消している間に止めたときだけ、
- * SILENT_HOLD_MS のあいだだけにする。過ぎたら本当に止める（そこから先は諦める）。
- */
-function startHold() {
-  if (holdingAt !== null) return true;
-  if (!current || !armed || audio.paused) return false;
-  if (document.visibilityState !== 'hidden') return false;
-  holdingAt = audio.currentTime;
-  audio.muted = true;
-  clearTimeout(holdTimer);
-  holdTimer = setTimeout(() => endHold({ resume: false }), SILENT_HOLD_MS);
-  log('hold-start', `${Math.round(holdingAt)}s`);
-  persist({ force: true });
-  updatePlaybackState();
-  emit();
-  return true;
-}
-
-/**
- * 保持をやめる。resume なら止めた位置から鳴らし直し、そうでなければ本当に止める。
- * 鳴らす操作・止める操作の前には必ず通す（消音のまま鳴り続けないように）。
- */
-function endHold({ resume }) {
-  if (holdingAt === null) return false;
-  clearTimeout(holdTimer);
-  holdTimer = 0;
-  const at = holdingAt;
-  holdingAt = null;   // audio.pause() が pause イベントで戻ってくる前に降ろす
-  audio.muted = false;
-  try { audio.currentTime = at; } catch { /* シークできない状態 */ }
-  if (resume) {
-    userPaused = false;
-    log('hold-resume', `${Math.round(at)}s`);
-  } else {
-    audio.pause();
-    log('hold-stop', `${Math.round(at)}s`);
-  }
-  persist({ force: true });
-  updatePlaybackState();
-  emit();
-  return true;
 }
 
 // ---- 操作 -----------------------------------------------------------------
@@ -257,7 +192,6 @@ function arm(startAt = 0) {
  */
 export function resume() {
   if (!current) return undefined;
-  if (endHold({ resume: true })) return undefined;
   userPaused = false;
 
   const lost = !armed || !audio.src || audio.error
@@ -303,7 +237,6 @@ export function resume() {
  *                  自動送りのときも続きから再生できる（endedハンドラ内でDBを待てないため）。
  */
 export function play(episode, showTitle, startAt = 0, nextQueue = null) {
-  endHold({ resume: false });
   if (nextQueue) queue = nextQueue;
   // 音源をまだ載せていないとき（起動直後の復元）は、同じ回でも載せ直しが要る
   const isSame = armed && current && current.episodeId === episode.episodeId;
@@ -334,7 +267,6 @@ export function play(episode, showTitle, startAt = 0, nextQueue = null) {
 
 export function toggle() {
   if (!current) return;
-  if (endHold({ resume: true })) return;
   if (armed && !audio.paused) {
     userPaused = true;
     audio.pause();
@@ -350,7 +282,6 @@ export function seekBy(seconds) {
 
 export function seekTo(seconds) {
   if (!current) return;
-  endHold({ resume: false });
   if (!armed) {
     // まだ音源を載せていない（起動直後の復元）。載せたときに適用する位置だけ動かす
     const limit = current.duration || 0;
@@ -429,8 +360,6 @@ audio.addEventListener('play', () => { log('play'); userPaused = false; updatePl
 audio.addEventListener('stalled', () => log('stalled'));
 audio.addEventListener('waiting', () => log('waiting'));
 audio.addEventListener('pause', () => {
-  // 保持中に割り込み（他アプリの音など）で止められた。消音のまま残さない
-  if (holdingAt !== null) { endHold({ resume: false }); return; }
   log('pause', userPaused ? '(操作)' : '(自動)');
   persist({ force: true });
   updatePlaybackState();
@@ -477,12 +406,7 @@ function finishAndAdvance(reason) {
   emit();
 }
 
-audio.addEventListener('ended', () => {
-  // 保持中に終端まで来ただけ。聴き終えたわけではないので送らない
-  if (holdingAt !== null) { log('hold-ended'); endHold({ resume: false }); return; }
-  log('ended');
-  finishAndAdvance('ended');
-});
+audio.addEventListener('ended', () => { log('ended'); finishAndAdvance('ended'); });
 audio.addEventListener('error', () => { log('error', audio.error ? `code=${audio.error.code}` : ''); emit(); });
 
 // アプリが背面に回る／閉じられる直前に取りこぼしなく保存する
@@ -494,7 +418,6 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   log('visible');
-  endHold({ resume: false });   // 前面では保つ必要が無い
   // 画面を消している間はJSの実行が止まることがある。戻ってきた時点で終端に達していたら送る。
   if (audio.paused && !userPaused && isAtEnd()) finishAndAdvance('visible');
 });
