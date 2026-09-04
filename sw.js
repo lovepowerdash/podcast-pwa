@@ -2,7 +2,7 @@
 // アプリシェルのみをキャッシュする Service Worker。
 // エピソードのダウンロード/オフライン再生は非要件のため、音声とフィードは一切キャッシュしない。
 // ---------------------------------------------------------------------------
-const CACHE = 'podcast-pwa-v8';
+const CACHE = 'podcast-pwa-v9';
 // 番組画像はURLごとに内容が変わらないので、別枠で溜めておく
 const ART_CACHE = 'podcast-pwa-art-v1';
 
@@ -17,7 +17,6 @@ const APP_SHELL = [
   '/js/db.js',
   '/js/player.js',
   '/js/ui.js',
-  '/audio/silence.wav',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/apple-touch-icon.png',

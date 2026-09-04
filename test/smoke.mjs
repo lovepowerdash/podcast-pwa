@@ -860,46 +860,64 @@ check('ロック画面からの再生でも続きから鳴る',
   await page.evaluate((pos) => `t=${document.getElementById('audio').currentTime.toFixed(1)} 停止=${pos.toFixed(1)}`, remotePausedAt));
 await page.evaluate(() => document.getElementById('audio').pause());
 
-// --- 画面を消したまま止めている間は、無音を鳴らしてオーディオセッションを手放さない。
-//     iOS は <audio> が止まるとセッションを落とし、背面からは起こし直せないため
-//     （データも通信もあるのに再生位置が進まない）。落とさなければ起こし直す必要が無い。
+// --- 画面を消したまま止めるときは、止めずに消音したまま鳴らし続けてセッションを保つ。
+//     iOS は止めるとオーディオセッションを落とし、背面では新しく再生を始められないため
+//     （実機の記録では本編も別要素も鳴り始めなかった）。止めなければ起こし直す必要が無い。
 const setHidden = (hidden) => page.evaluate((h) => {
   Object.defineProperty(document, 'visibilityState', {
     configurable: true, get: () => (h ? 'hidden' : 'visible'),
   });
   document.dispatchEvent(new Event('visibilitychange'));
 }, hidden);
-const silencePlaying = () => page.evaluate(() => !document.getElementById('silence').paused);
+const audioState = () => page.evaluate(() => {
+  const a = document.getElementById('audio');
+  return { paused: a.paused, muted: a.muted, t: a.currentTime };
+});
 
 await page.click('[data-episode] >> nth=0');
 await page.waitForFunction(() => document.getElementById('audio').currentTime > 2, null, { timeout: 8000 });
 
-// 前面で止めただけなら要らない
+// 前面で止めたときは、普通に止める（消音保持はしない）
 await page.evaluate(() => window.__actionHandlers.pause());
 await page.waitForTimeout(300);
-check('前面で止めたときは無音を鳴らさない', !(await silencePlaying()));
+let st = await audioState();
+check('前面で止めたときは普通に止まる', st.paused && !st.muted, JSON.stringify(st));
 
-// 画面を消したまま止めたときだけ鳴らす
+// 画面を消したまま止めたら、止めずに消音で保つ
 await page.evaluate(() => window.__actionHandlers.play());
 await page.waitForFunction(() => !document.getElementById('audio').paused, null, { timeout: 8000 });
 await setHidden(true);
 await page.evaluate(() => window.__actionHandlers.pause());
-await page.waitForTimeout(400);
-check('画面を消したまま止めるとセッションを保つ（無音を鳴らす）', await silencePlaying());
-
-// 鳴らすときは必ず先に無音を止める（本編を邪魔しないように）
-await page.evaluate(() => window.__actionHandlers.play());
-await page.waitForTimeout(400);
-check('再生すると無音を止める', !(await silencePlaying()));
-check('本編は鳴っている', await page.evaluate(() => !document.getElementById('audio').paused));
-
-// 前面に戻ったら保つ必要が無い
-await page.evaluate(() => window.__actionHandlers.pause());
 await page.waitForTimeout(300);
-check('画面を消したままなら保ち続ける', await silencePlaying());
+st = await audioState();
+check('画面を消したまま止めると、止めずに消音で保つ', !st.paused && st.muted, JSON.stringify(st));
+check('画面上は止まって見える（再生アイコンに戻る）',
+  await page.evaluate(() => document.getElementById('mini-icon').innerHTML.includes('polygon')),
+  await page.evaluate(() => document.getElementById('mini-icon').innerHTML.slice(0, 30)));
+
+// 保持のあいだ、中では先へ進んでいるが、表示上の再生位置は止めた場所のまま
+const shownWhileHeld = await page.textContent('#mini-time');
+await page.waitForTimeout(1500);
+check('保持中も表示上の再生位置は動かない',
+  (await page.textContent('#mini-time')) === shownWhileHeld,
+  `${shownWhileHeld} → ${await page.textContent('#mini-time')}`);
+
+// 再開は消音を解いて位置を戻すだけ（新しく再生を始めない）
+const beforeResume = await audioState();
+await page.evaluate(() => window.__actionHandlers.play());
+await page.waitForTimeout(300);
+st = await audioState();
+check('再開すると消音が解ける', !st.muted && !st.paused, JSON.stringify(st));
+check('保持中に進んだぶんは巻き戻す', st.t < beforeResume.t,
+  `保持中=${beforeResume.t.toFixed(1)} 再開後=${st.t.toFixed(1)}`);
+
+// 前面に戻したら保持をやめて本当に止める
+await page.evaluate(() => window.__actionHandlers.pause());
+await page.waitForTimeout(200);
 await setHidden(false);
 await page.waitForTimeout(300);
-check('前面に戻すと無音を止める', !(await silencePlaying()));
+st = await audioState();
+check('前面に戻すと保持をやめて止まる', st.paused && !st.muted, JSON.stringify(st));
 await page.evaluate(() => document.getElementById('audio').pause());
 
 // --- Service Worker / manifest

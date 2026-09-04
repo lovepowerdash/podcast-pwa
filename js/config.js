@@ -4,7 +4,7 @@
 
 // ホーム画面の下部に表示する版。端末に新しいコードが届いているかを目視で確かめるためのもの。
 // 変更を配信するたびに更新する。
-export const APP_VERSION = '2026-08-27 #52';
+export const APP_VERSION = '2026-08-27 #53';
 
 // RSSフィードの取得経路。全経路を同時に投げ、最初に成功したものを採用する。
 //
@@ -51,7 +51,7 @@ export const POSITION_SAVE_INTERVAL_MS = 5000; // 再生位置をIndexedDBへ書
 export const READ_RATIO = 0.95;              // ここまで再生したら既読とみなす
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 1.75, 2];
 // 画面を消したまま止めたあと、オーディオセッションを手放さずに保つ長さ。
-// iOS は <audio> が止まるとセッションを落とし、背面からは起こし直せないため、
-// 無音を鳴らし続けて落とさないようにする（js/player.js の holdAudioSession）。
-// 鳴らしている間は電池と通信を使い、他アプリも音を出しにくくなるので、短く区切る。
+// iOS は <audio> が止まるとセッションを落とし、背面からは起こし直せない。そこで
+// 止める代わりに消音したまま鳴らし続ける（js/player.js の startHold）。
+// 鳴らし続ける間は通信と電池を使うので、短く区切る。過ぎたら本当に止める。
 export const SILENT_HOLD_MS = 5 * 60 * 1000; // 5分
