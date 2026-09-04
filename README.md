@@ -55,6 +55,28 @@ Functions は `_routes.json` で `/api/*` だけに限定してあり、この�
 - iPhone 実機で確認済み: フィード取得 / 並び替え / 再生 / 既読・再生位置の保存 /
   連続再生 / バックグラウンド再生 / ロック画面操作 / ホーム画面に追加しての standalone 起動
 
+## iOS アプリとして包む（native/）
+
+**画面を消したまま一時停止したあとイヤホンから再開する**、この一点だけは Web では解けない
+（上記「iOS 上の注意点」を参照）。解くには音声再生をネイティブに持つ必要があるため、
+`native/` に Capacitor の入れ物を置いている。
+
+- **Web の配信物はリポジトリ直下が正**。`native/` はそれを写して包むだけで、二重管理はしない
+  （`native/scripts/copy-web.mjs` が `index.html` / `css` / `js` / `icons` を `native/www` へ写す）
+- ネイティブでは Service Worker を登録しない（`window.__PODFLOW_NATIVE__`）。中身は `.ipa` に
+  同梱されていて更新は入れ直しで行うため、キャッシュ層を挟む意味が無い
+- `Info.plist` の `UIBackgroundModes: audio` が背面再生の前提。外すと画面を消した時点で止まる
+
+### ビルド（Mac は要らない）
+
+`.github/workflows/ios.yml` が GitHub Actions の macOS ランナーで `.ipa` を組み立て、
+成果物として置く。**署名はしない**（無料の Apple ID で署名するのは SideStore 側の役目）。
+
+### 端末へ入れる
+
+SideStore で入れる。初回だけ Windows PC が要り、以降は端末内で更新される。
+無料の Apple ID は同時3アプリ・証明書は7日で失効するが、SideStore が自動で更新する。
+
 ## デプロイ（Cloudflare Pages）
 
 ビルド不要。リポジトリ直下がそのまま公開ディレクトリで、`functions/` は自動で認識される。

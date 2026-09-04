@@ -1,0 +1,9 @@
+{
+  "appId": "dash.lovepower.podflow",
+  "appName": "podflow",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0f0f14"
+  }
+}
